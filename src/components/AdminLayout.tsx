@@ -15,6 +15,7 @@ const navItems = [
 const AdminLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useTheme();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -45,7 +46,11 @@ const AdminLayout = () => {
             </Link>
           ))}
         </nav>
-        <div className="p-4 border-t">
+        <div className="p-4 border-t space-y-1">
+          <Button variant="ghost" onClick={toggleTheme} className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground">
+            {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+            {theme === "light" ? "Dark Mode" : "Light Mode"}
+          </Button>
           <Button variant="ghost" onClick={handleLogout} className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground">
             <LogOut className="h-4 w-4" />
             Logout
