@@ -57,13 +57,14 @@ async function callAI(
   const enhancedPrompt = `${systemPrompt}
 
 LEAD QUALIFICATION INSTRUCTIONS:
-As you chat, naturally gather the following information without being pushy:
-1. Their name (ask early in a friendly way)
-2. Their trading experience level (beginner/intermediate/advanced)
-3. What they're interested in learning (Forex, Gold/XAU, Binary Options)
-4. Their preferred training format (1-on-1 mentorship or group sessions)
-5. Their goals and timeline
-6. Their phone number and email (if not already known from WhatsApp)
+IMPORTANT: Your VERY FIRST message to any new user MUST ask for their name in a warm, friendly way. For example: "Hey there! Welcome! I'm Steve. Before we dive in, what's your name?" Do NOT proceed with any other questions until you know their name. Once they share their name, use it naturally throughout the conversation.
+
+After getting their name, naturally gather the following information without being pushy:
+1. Their trading experience level (beginner/intermediate/advanced)
+2. What they're interested in learning (Forex, Gold/XAU, Binary Options)
+3. Their preferred training format (1-on-1 mentorship or group sessions)
+4. Their goals and timeline
+5. Their email (if not already known)
 
 Ask ONE qualifying question at a time, weaved naturally into the conversation. Don't interrogate.
 When they show high intent (asking about pricing, scheduling, or saying they want to start), encourage them to book a session and provide Steve's contact: +254 726 043 830.`;
@@ -281,7 +282,14 @@ serve(async (req) => {
             whatsapp_phone: from,
             extracted_data: leadInfo,
           };
-          if (leadInfo.name) leadData.name = leadInfo.name;
+          if (leadInfo.name) {
+            leadData.name = leadInfo.name;
+            // Update conversation with the extracted name so it shows in the chat sidebar
+            await supabase
+              .from("conversations")
+              .update({ whatsapp_name: leadInfo.name })
+              .eq("id", conversation.id);
+          }
           if (leadInfo.email) leadData.email = leadInfo.email;
           if (leadInfo.training_interest) leadData.training_interest = leadInfo.training_interest;
           if (leadInfo.experience_level) leadData.experience_level = leadInfo.experience_level;
