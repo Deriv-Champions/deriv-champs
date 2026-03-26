@@ -55,6 +55,54 @@ const Conversations = () => {
 
   const selectedConv = conversations.find((c) => c.id === selected);
 
+  const exportChatPDF = () => {
+    if (!selectedConv || messages.length === 0) return;
+    const doc = new jsPDF();
+    const name = selectedConv.whatsapp_name || selectedConv.whatsapp_phone;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 14;
+    const maxWidth = pageWidth - margin * 2;
+    let y = 20;
+
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Chat with ${name}`, margin, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Phone: ${selectedConv.whatsapp_phone}`, margin, y);
+    y += 10;
+
+    doc.setDrawColor(200);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 8;
+
+    messages.forEach((msg) => {
+      const sender = msg.role === "assistant" ? "Steve (Bot)" : name;
+      const time = format(new Date(msg.created_at), "MMM d, yyyy h:mm a");
+      const header = `${sender}  •  ${time}`;
+      const lines = doc.splitTextToSize(msg.content, maxWidth - 4);
+      const blockHeight = 6 + lines.length * 5 + 4;
+
+      if (y + blockHeight > doc.internal.pageSize.getHeight() - 15) {
+        doc.addPage();
+        y = 15;
+      }
+
+      doc.setFontSize(8);
+      doc.setTextColor(120);
+      doc.text(header, margin, y);
+      y += 5;
+
+      doc.setFontSize(10);
+      doc.setTextColor(30);
+      doc.text(lines, margin + 2, y);
+      y += lines.length * 5 + 6;
+    });
+
+    doc.save(`chat-${name.replace(/\s+/g, "-")}.pdf`);
+  };
+
   // Mobile: show thread when selected, list when not
   return (
     <div>
