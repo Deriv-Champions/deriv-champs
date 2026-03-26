@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from "date-fns";
+import { ArrowLeft, MessageSquare } from "lucide-react";
 
 interface Conversation {
   id: string;
@@ -27,14 +29,14 @@ const Conversations = () => {
   const [messages, setMessages] = useState<Message[]>([]);
 
   useEffect(() => {
-    const fetch = async () => {
+    const fetchConvs = async () => {
       const { data } = await supabase
         .from("conversations")
         .select("*")
         .order("updated_at", { ascending: false });
       setConversations((data as Conversation[]) || []);
     };
-    fetch();
+    fetchConvs();
   }, []);
 
   useEffect(() => {
@@ -50,14 +52,20 @@ const Conversations = () => {
     fetchMessages();
   }, [selected]);
 
+  const selectedConv = conversations.find((c) => c.id === selected);
+
+  // Mobile: show thread when selected, list when not
   return (
     <div>
       <h1 className="text-3xl font-bold mb-6">Conversations</h1>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-12rem)]">
-        {/* Conversation list */}
-        <Card className="lg:col-span-1">
+        {/* Conversation list — hidden on mobile when a chat is selected */}
+        <Card className={`lg:col-span-1 ${selected ? "hidden lg:block" : ""}`}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Chats ({conversations.length})</CardTitle>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              Chats ({conversations.length})
+            </CardTitle>
           </CardHeader>
           <ScrollArea className="h-[calc(100vh-16rem)]">
             <CardContent className="space-y-2 pt-0">
@@ -90,12 +98,22 @@ const Conversations = () => {
           </ScrollArea>
         </Card>
 
-        {/* Messages */}
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">
-              {selected ? conversations.find((c) => c.id === selected)?.whatsapp_name || "Chat" : "Select a conversation"}
-            </CardTitle>
+        {/* Messages thread */}
+        <Card className={`lg:col-span-2 ${!selected ? "hidden lg:block" : ""}`}>
+          <CardHeader className="pb-3 flex flex-row items-center gap-3">
+            {selected && (
+              <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSelected(null)}>
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            )}
+            <div>
+              <CardTitle className="text-lg">
+                {selectedConv ? selectedConv.whatsapp_name || selectedConv.whatsapp_phone : "Select a conversation"}
+              </CardTitle>
+              {selectedConv && (
+                <p className="text-xs text-muted-foreground">{selectedConv.whatsapp_phone}</p>
+              )}
+            </div>
           </CardHeader>
           <ScrollArea className="h-[calc(100vh-16rem)]">
             <CardContent className="space-y-3 pt-0">
@@ -105,23 +123,27 @@ const Conversations = () => {
                   className={`flex ${msg.role === "assistant" ? "justify-start" : "justify-end"}`}
                 >
                   <div
-                    className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
+                    className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
                       msg.role === "assistant"
-                        ? "bg-muted text-foreground"
-                        : "bg-primary text-primary-foreground"
+                        ? "bg-muted text-foreground rounded-bl-sm"
+                        : "bg-primary text-primary-foreground rounded-br-sm"
                     }`}
                   >
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                     <p className="text-[10px] opacity-60 mt-1">
-                      {new Date(msg.created_at).toLocaleTimeString()}
+                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                 </div>
               ))}
               {!selected && (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  Select a conversation to view messages
-                </p>
+                <div className="text-center py-16">
+                  <MessageSquare className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">Select a conversation to view the thread</p>
+                </div>
+              )}
+              {selected && messages.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-8">No messages in this conversation</p>
               )}
             </CardContent>
           </ScrollArea>
