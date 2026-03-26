@@ -50,8 +50,8 @@ const AdminLayout = () => {
             Logout
           </Button>
         </div>
+      </aside>
 
-      {/* Mobile nav */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card z-50">
         <nav className="flex justify-around p-2">
           {navItems.map((item) => (
