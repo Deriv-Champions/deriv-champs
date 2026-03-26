@@ -15,20 +15,24 @@ const supabase = createClient(
 // Lead qualification criteria
 const LEAD_QUALIFICATION_PROMPT = `You are a lead qualification assistant. Analyze the conversation and extract structured lead data.
 
-QUALIFICATION CRITERIA:
-- SCORE 0-20: Just browsing, no clear intent
-- SCORE 21-40: Showed some interest, asked basic questions
-- SCORE 41-60: Engaged meaningfully, shared some details (name, experience level)
-- SCORE 61-80: High intent — shared contact info, asked about pricing/schedule, specific training interest
-- SCORE 81-100: Ready to convert — requested booking, mentioned budget, asked to start immediately
+QUALIFICATION STAGES:
+- "new": Just started chatting, no meaningful info shared yet (Score 0-15)
+- "contacted": Responded to initial outreach, minimal engagement (Score 16-30)
+- "nurturing": Showing interest, asking questions, engaging in conversation (Score 31-50)
+- "qualified": Shared key details (name, experience, interest area), clear intent (Score 51-75)
+- "proposal": Asked about pricing, schedule, or specific training packages (Score 76-85)
+- "negotiation": Discussing specifics, comparing options, close to decision (Score 86-92)
+- "converted": Booked a session, committed to training, ready to start (Score 93-100)
+- "lost": Explicitly declined, went silent after multiple follow-ups, or chose competitor
 
 EXTRACT these fields (use null if not found):
 - name: Full name
 - email: Email address
 - training_interest: One of "forex", "gold_xau", "binary_options", "1on1_mentorship", "group_training"
 - experience_level: One of "beginner", "intermediate", "advanced"
-- lead_score: 0-100 based on criteria above
-- qualification_status: "unqualified", "nurturing", "qualified", "hot_lead" based on score ranges
+- lead_score: 0-100 based on stage criteria above
+- qualification_status: One of the stages above
+- qualification_reason: A 2-3 sentence explanation of WHY you assigned this stage and score. Reference specific things the user said or did in the conversation.
 - key_interests: Array of specific topics they asked about
 - objections: Any concerns or hesitations expressed
 - next_action: Suggested follow-up action for the sales team
