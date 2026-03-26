@@ -1,6 +1,8 @@
-import { Link, useLocation, Outlet } from "react-router-dom";
-import { LayoutDashboard, MessageSquare, Users, Settings } from "lucide-react";
+import { Link, useLocation, Outlet, useNavigate } from "react-router-dom";
+import { LayoutDashboard, MessageSquare, Users, Settings, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/admin" },
@@ -11,7 +13,12 @@ const navItems = [
 
 const AdminLayout = () => {
   const location = useLocation();
+  const navigate = useNavigate();
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate("/admin/login");
+  };
   return (
     <div className="flex min-h-screen bg-background">
       {/* Sidebar */}
@@ -37,9 +44,14 @@ const AdminLayout = () => {
             </Link>
           ))}
         </nav>
+        <div className="p-4 border-t">
+          <Button variant="ghost" onClick={handleLogout} className="w-full justify-start gap-3 text-muted-foreground hover:text-foreground">
+            <LogOut className="h-4 w-4" />
+            Logout
+          </Button>
+        </div>
       </aside>
 
-      {/* Mobile nav */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 border-t bg-card z-50">
         <nav className="flex justify-around p-2">
           {navItems.map((item) => (
