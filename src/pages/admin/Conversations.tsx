@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatDistanceToNow } from "date-fns";
-import { ArrowLeft, MessageSquare } from "lucide-react";
+import { formatDistanceToNow, format } from "date-fns";
+import { ArrowLeft, Download, MessageSquare } from "lucide-react";
+import jsPDF from "jspdf";
 
 interface Conversation {
   id: string;
@@ -100,20 +101,27 @@ const Conversations = () => {
 
         {/* Messages thread */}
         <Card className={`lg:col-span-2 ${!selected ? "hidden lg:block" : ""}`}>
-          <CardHeader className="pb-3 flex flex-row items-center gap-3">
-            {selected && (
-              <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSelected(null)}>
-                <ArrowLeft className="h-5 w-5" />
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <div className="flex items-center gap-3">
+              {selected && (
+                <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSelected(null)}>
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+              )}
+              <div>
+                <CardTitle className="text-lg">
+                  {selectedConv ? selectedConv.whatsapp_name || selectedConv.whatsapp_phone : "Select a conversation"}
+                </CardTitle>
+                {selectedConv && (
+                  <p className="text-xs text-muted-foreground">{selectedConv.whatsapp_phone}</p>
+                )}
+              </div>
+            </div>
+            {selected && messages.length > 0 && (
+              <Button variant="outline" size="sm" onClick={() => exportChatPDF()} className="gap-1.5">
+                <Download className="h-4 w-4" /> PDF
               </Button>
             )}
-            <div>
-              <CardTitle className="text-lg">
-                {selectedConv ? selectedConv.whatsapp_name || selectedConv.whatsapp_phone : "Select a conversation"}
-              </CardTitle>
-              {selectedConv && (
-                <p className="text-xs text-muted-foreground">{selectedConv.whatsapp_phone}</p>
-              )}
-            </div>
           </CardHeader>
           <ScrollArea className="h-[calc(100vh-16rem)]">
             <CardContent className="space-y-3 pt-0">
