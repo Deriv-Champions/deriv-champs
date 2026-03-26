@@ -14,7 +14,145 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agent_config: {
+        Row: {
+          agent_name: string
+          created_at: string
+          id: string
+          system_prompt: string
+          updated_at: string
+        }
+        Insert: {
+          agent_name?: string
+          created_at?: string
+          id?: string
+          system_prompt?: string
+          updated_at?: string
+        }
+        Update: {
+          agent_name?: string
+          created_at?: string
+          id?: string
+          system_prompt?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      conversations: {
+        Row: {
+          created_at: string
+          id: string
+          status: string
+          updated_at: string
+          whatsapp_name: string | null
+          whatsapp_phone: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          status?: string
+          updated_at?: string
+          whatsapp_name?: string | null
+          whatsapp_phone: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          status?: string
+          updated_at?: string
+          whatsapp_name?: string | null
+          whatsapp_phone?: string
+        }
+        Relationships: []
+      }
+      leads: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          email: string | null
+          experience_level: string | null
+          extracted_data: Json | null
+          id: string
+          lead_score: number | null
+          name: string | null
+          notes: string | null
+          status: string
+          training_interest: string | null
+          updated_at: string
+          whatsapp_phone: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          email?: string | null
+          experience_level?: string | null
+          extracted_data?: Json | null
+          id?: string
+          lead_score?: number | null
+          name?: string | null
+          notes?: string | null
+          status?: string
+          training_interest?: string | null
+          updated_at?: string
+          whatsapp_phone: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          email?: string | null
+          experience_level?: string | null
+          extracted_data?: Json | null
+          id?: string
+          lead_score?: number | null
+          name?: string | null
+          notes?: string | null
+          status?: string
+          training_interest?: string | null
+          updated_at?: string
+          whatsapp_phone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          role: string
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          role: string
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
