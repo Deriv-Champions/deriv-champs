@@ -16,25 +16,165 @@ export type Database = {
     Tables: {
       agent_config: {
         Row: {
+          ad_trigger_keywords: string[] | null
           agent_name: string
           created_at: string
+          faqs: Json | null
           id: string
+          initial_menu: Json | null
+          lead_qualification_prompt: string | null
+          onboarding_quiz: Json | null
+          response_style: string | null
           system_prompt: string
+          tone_voice: string | null
           updated_at: string
+          welcome_instructions: string | null
         }
         Insert: {
+          ad_trigger_keywords?: string[] | null
           agent_name?: string
           created_at?: string
+          faqs?: Json | null
           id?: string
+          initial_menu?: Json | null
+          lead_qualification_prompt?: string | null
+          onboarding_quiz?: Json | null
+          response_style?: string | null
           system_prompt?: string
+          tone_voice?: string | null
           updated_at?: string
+          welcome_instructions?: string | null
         }
         Update: {
+          ad_trigger_keywords?: string[] | null
           agent_name?: string
           created_at?: string
+          faqs?: Json | null
           id?: string
+          initial_menu?: Json | null
+          lead_qualification_prompt?: string | null
+          onboarding_quiz?: Json | null
+          response_style?: string | null
           system_prompt?: string
+          tone_voice?: string | null
           updated_at?: string
+          welcome_instructions?: string | null
+        }
+        Relationships: []
+      }
+      availability: {
+        Row: {
+          created_at: string | null
+          day_of_week: number
+          end_time: string
+          id: string
+          is_active: boolean | null
+          start_time: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          day_of_week: number
+          end_time: string
+          id?: string
+          is_active?: boolean | null
+          start_time: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          day_of_week?: number
+          end_time?: string
+          id?: string
+          is_active?: boolean | null
+          start_time?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      bookings: {
+        Row: {
+          booking_date: string | null
+          created_at: string | null
+          email: string | null
+          first_name: string
+          id: string
+          is_online: boolean | null
+          last_name: string
+          message: string | null
+          phone: string
+          programme_id: string | null
+          start_time: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          booking_date?: string | null
+          created_at?: string | null
+          email?: string | null
+          first_name: string
+          id?: string
+          is_online?: boolean | null
+          last_name: string
+          message?: string | null
+          phone: string
+          programme_id?: string | null
+          start_time?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          booking_date?: string | null
+          created_at?: string | null
+          email?: string | null
+          first_name?: string
+          id?: string
+          is_online?: boolean | null
+          last_name?: string
+          message?: string | null
+          phone?: string
+          programme_id?: string | null
+          start_time?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookings_programme_id_fkey"
+            columns: ["programme_id"]
+            isOneToOne: false
+            referencedRelation: "programmes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contact_messages: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          id: string
+          message: string
+          name: string
+          status: string | null
+          subject: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          message: string
+          name: string
+          status?: string | null
+          subject?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          id?: string
+          message?: string
+          name?: string
+          status?: string | null
+          subject?: string | null
         }
         Relationships: []
       }
@@ -42,6 +182,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          metadata: Json | null
           status: string
           updated_at: string
           whatsapp_name: string | null
@@ -50,6 +191,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          metadata?: Json | null
           status?: string
           updated_at?: string
           whatsapp_name?: string | null
@@ -58,10 +200,41 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          metadata?: Json | null
           status?: string
           updated_at?: string
           whatsapp_name?: string | null
           whatsapp_phone?: string
+        }
+        Relationships: []
+      }
+      knowledge_base: {
+        Row: {
+          category: string | null
+          content: string
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          category?: string | null
+          content: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string | null
+          content?: string
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          title?: string
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -153,12 +326,144 @@ export type Database = {
           },
         ]
       }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          email: string
+          full_name: string | null
+          id: string
+          role: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          email: string
+          full_name?: string | null
+          id: string
+          role?: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          email?: string
+          full_name?: string | null
+          id?: string
+          role?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      programmes: {
+        Row: {
+          benefits: Json | null
+          created_at: string | null
+          curriculum: Json | null
+          description: string | null
+          duration: string | null
+          id: string
+          image_url: string | null
+          level: string | null
+          price: string | null
+          spots: number | null
+          spots_left: number | null
+          status: string | null
+          subtitle: string | null
+          title: string
+          type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          benefits?: Json | null
+          created_at?: string | null
+          curriculum?: Json | null
+          description?: string | null
+          duration?: string | null
+          id?: string
+          image_url?: string | null
+          level?: string | null
+          price?: string | null
+          spots?: number | null
+          spots_left?: number | null
+          status?: string | null
+          subtitle?: string | null
+          title: string
+          type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          benefits?: Json | null
+          created_at?: string | null
+          curriculum?: Json | null
+          description?: string | null
+          duration?: string | null
+          id?: string
+          image_url?: string | null
+          level?: string | null
+          price?: string | null
+          spots?: number | null
+          spots_left?: number | null
+          status?: string | null
+          subtitle?: string | null
+          title?: string
+          type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      training_requests: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          experience: string | null
+          first_name: string
+          id: string
+          interest: string | null
+          last_name: string
+          message: string | null
+          phone: string
+          preferred_date: string | null
+          preferred_time: string | null
+          status: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          experience?: string | null
+          first_name: string
+          id?: string
+          interest?: string | null
+          last_name: string
+          message?: string | null
+          phone: string
+          preferred_date?: string | null
+          preferred_time?: string | null
+          status?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          experience?: string | null
+          first_name?: string
+          id?: string
+          interest?: string | null
+          last_name?: string
+          message?: string | null
+          phone?: string
+          preferred_date?: string | null
+          preferred_time?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_super_admin: { Args: never; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
