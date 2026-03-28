@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Menu, X, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,7 +31,6 @@ export function Navbar() {
     { label: "Contact", href: "/contact" },
   ];
 
-  if (!mounted) return null;
 
   return (
     <header
@@ -43,18 +43,14 @@ export function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <span
-            className="w-7 h-7 rounded flex items-center justify-center text-white font-black text-[10px] flex-shrink-0"
-            style={{ backgroundColor: "hsl(22 100% 50%)" }}
-          >
-            DC
-          </span>
-          <span className="font-bold text-[11px] tracking-tight text-foreground uppercase">
-            DERIV{" "}
-            <span className="font-normal text-muted-foreground">
-              CHAMPIONS
-            </span>
-          </span>
+          <Image 
+            src="/deriv-logo.png" 
+            alt="Deriv Champions" 
+            width={120} 
+            height={40} 
+            className="h-8 w-auto object-contain dark:invert-[0.1] brightness-110"
+            priority
+          />
         </Link>
 
         <nav className="hidden md:flex items-center gap-8">
@@ -77,10 +73,14 @@ export function Navbar() {
 
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="p-2 rounded-full text-muted-foreground hover:text-primary transition-colors"
+            className="p-2 rounded-full text-muted-foreground hover:text-primary transition-colors min-w-[32px] flex items-center justify-center"
             aria-label="Toggle theme"
           >
-            {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            {mounted ? (
+              theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />
+            ) : (
+              <div className="w-3.5 h-3.5" />
+            )}
           </button>
 
           <Link
@@ -95,10 +95,14 @@ export function Navbar() {
         <div className="md:hidden flex items-center gap-2">
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="p-2 text-muted-foreground hover:text-primary"
+            className="p-2 text-muted-foreground hover:text-primary min-w-[32px] flex items-center justify-center"
             aria-label="Toggle theme"
           >
-            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            {mounted ? (
+              theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />
+            ) : (
+              <div className="w-4 h-4" />
+            )}
           </button>
           <button
             className="p-2 text-muted-foreground hover:text-primary"

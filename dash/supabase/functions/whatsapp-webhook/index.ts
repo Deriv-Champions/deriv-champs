@@ -3,8 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 const supabase = createClient(
@@ -12,147 +11,78 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-// Lead qualification criteria
-const LEAD_QUALIFICATION_PROMPT = `You are a lead qualification assistant. Analyze the conversation and extract structured lead data.
+// ─────────────────────────────────────────────
+// IA ACTION HELPERS (Bookings & Contacts)
+// ─────────────────────────────────────────────
 
-QUALIFICATION STAGES:
-- "new": Just started chatting, no meaningful info shared yet (Score 0-15)
-- "contacted": Responded to initial outreach, minimal engagement (Score 16-30)
-- "nurturing": Showing interest, asking questions, engaging in conversation (Score 31-50)
-- "qualified": Shared key details (name, experience, interest area), clear intent (Score 51-75)
-- "proposal": Asked about pricing, schedule, or specific training packages (Score 76-85)
-- "negotiation": Discussing specifics, comparing options, close to decision (Score 86-92)
-- "converted": Booked a session, committed to training, ready to start (Score 93-100)
-- "lost": Explicitly declined, went silent after multiple follow-ups, or chose competitor
+async function processAIActions(text: string) {
+  let cleanText = text;
+  const actionRegex = /\[ACTION:\s*(\w+)\s*(\{[\s\S]*?\})\]/g;
+  let match;
 
-EXTRACT these fields (use null if not found):
-- name: Full name
-- email: Email address
-- training_interest: One of "forex", "gold_xau", "binary_options", "1on1_mentorship", "group_training"
-- experience_level: One of "beginner", "intermediate", "advanced"
-- lead_score: 0-100 based on stage criteria above
-- qualification_status: One of the stages above
-- qualification_reason: A 2-3 sentence explanation of WHY you assigned this stage and score. Reference specific things the user said or did in the conversation.
-- key_interests: Array of specific topics they asked about
-- objections: Any concerns or hesitations expressed
-- next_action: Suggested follow-up action for the sales team
+  while ((match = actionRegex.exec(text)) !== null) {
+    const [fullTag, actionType, payloadStr] = match;
+    try {
+      const payload = JSON.parse(payloadStr);
+      console.log(`Executing AI Action: ${actionType}`, payload);
 
-Return ONLY valid JSON, no other text.`;
-
-async function callAI(
-  messages: { role: string; content: string }[]
-): Promise<string> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
-
-  const { data: config } = await supabase
-    .from("agent_config")
-    .select("system_prompt, agent_name")
-    .limit(1)
-    .single();
-
-  const systemPrompt = config?.system_prompt || "You are a helpful trading mentor assistant.";
-
-  // Inject lead qualification instructions into the system prompt
-  const enhancedPrompt = `${systemPrompt}
-
-LEAD QUALIFICATION INSTRUCTIONS:
-IMPORTANT: Your VERY FIRST message to any new user MUST ask for their name in a warm, friendly way. For example: "Hey there! Welcome! I'm Steve. Before we dive in, what's your name?" Do NOT proceed with any other questions until you know their name. Once they share their name, use it naturally throughout the conversation.
-
-After getting their name, naturally gather the following information without being pushy:
-1. Their trading experience level (beginner/intermediate/advanced)
-2. What they're interested in learning (Forex, Gold/XAU, Binary Options)
-3. Their preferred training format (1-on-1 mentorship or group sessions)
-4. Their goals and timeline
-5. Their email (if not already known)
-
-Ask ONE qualifying question at a time, weaved naturally into the conversation. Don't interrogate.
-When they show high intent (asking about pricing, scheduling, or saying they want to start), encourage them to book a session and provide Steve's contact: +254 726 043 830.`;
-
-  const fullMessages = [
-    { role: "system", content: enhancedPrompt },
-    ...messages,
-  ];
-
-  const response = await fetch(
-    "https://ai.gateway.lovable.dev/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: fullMessages,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    console.error("Lovable AI error:", response.status, await response.text());
-    const fallback = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: fullMessages,
-        }),
+      if (actionType === "CREATE_BOOKING") {
+        await supabase.from("bookings").insert({
+          first_name: payload.first_name,
+          last_name: payload.last_name || "",
+          email: payload.email,
+          phone: payload.phone,
+          programme_id: payload.programme_id,
+          booking_date: payload.booking_date,
+          start_time: payload.start_time,
+          is_online: payload.is_online !== undefined ? payload.is_online : true,
+          message: payload.message || "Booked via AI Assistant",
+          status: "pending"
+        });
+      } else if (actionType === "SEND_CONTACT") {
+        await supabase.from("contact_messages").insert({
+          name: payload.name,
+          email: payload.email,
+          subject: payload.subject || "WhatsApp Inquiry",
+          message: payload.message,
+          status: "unread"
+        });
       }
-    );
-    if (!fallback.ok) {
-      throw new Error(`AI fallback failed [${fallback.status}]`);
+      
+      // Remove the tag from the final message
+      cleanText = cleanText.replace(fullTag, "");
+    } catch (e) {
+      console.error("Action parse/execute error:", e, payloadStr);
     }
-    const fallbackData = await fallback.json();
-    return fallbackData.choices?.[0]?.message?.content || "I'm sorry, I couldn't process that.";
   }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "I'm sorry, I couldn't process that.";
+  return cleanText.trim();
 }
 
-async function extractLeadInfo(
-  conversationMessages: { role: string; content: string }[]
-): Promise<Record<string, any>> {
-  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-  if (!LOVABLE_API_KEY) return {};
-
-  try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          { role: "system", content: LEAD_QUALIFICATION_PROMPT },
-          ...conversationMessages.slice(-10),
-        ],
-      }),
-    });
-
-    if (!resp.ok) return {};
-    const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    console.error("Lead extraction error:", e);
-  }
-  return {};
+// ─────────────────────────────────────────────
+// TRIGGER DETECTION
+// ─────────────────────────────────────────────
+function isAdTrigger(text: string, keywords: string[]): boolean {
+  const lowerText = text.toLowerCase();
+  return keywords.some(k => lowerText.includes(k.toLowerCase()));
 }
 
-async function sendWhatsAppMessage(to: string, text: string) {
+// ─────────────────────────────────────────────
+// WHATSAPP SENDERS (With Automated DB Logging)
+// ─────────────────────────────────────────────
+
+async function sendTextMessage(to: string, text: string, conversationId?: string) {
   const token = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
   const phoneId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
   if (!token || !phoneId) throw new Error("WhatsApp credentials not configured");
+
+  // Log to database if conversationId is provided
+  if (conversationId) {
+    await supabase.from("messages").insert({
+      conversation_id: conversationId,
+      role: "assistant",
+      content: text,
+    });
+  }
 
   const resp = await fetch(
     `https://graph.facebook.com/v21.0/${phoneId}/messages`,
@@ -170,159 +100,355 @@ async function sendWhatsAppMessage(to: string, text: string) {
       }),
     }
   );
+  if (!resp.ok) console.error("WhatsApp text send error:", resp.status, await resp.text());
+}
 
-  if (!resp.ok) {
-    console.error("WhatsApp send error:", resp.status, await resp.text());
+async function sendInteractiveButtons(
+  to: string,
+  bodyText: string,
+  buttons: { id: string; title: string }[],
+  conversationId?: string
+) {
+  const token = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+  const phoneId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
+  if (!token || !phoneId) throw new Error("WhatsApp credentials not configured");
+
+  // Log to database if conversationId is provided
+  if (conversationId) {
+    const buttonList = buttons.map(b => b.title).join(", ");
+    await supabase.from("messages").insert({
+      conversation_id: conversationId,
+      role: "assistant",
+      content: `${bodyText}\n\n[Buttons: ${buttonList}]`,
+    });
+  }
+
+  const resp = await fetch(
+    `https://graph.facebook.com/v21.0/${phoneId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: bodyText },
+          action: {
+            buttons: buttons.map((b) => ({
+              type: "reply",
+              reply: { id: b.id, title: b.title },
+            })),
+          },
+        },
+      }),
+    }
+  );
+  if (!resp.ok) console.error("WhatsApp button send error:", resp.status, await resp.text());
+}
+
+// ─────────────────────────────────────────────
+// AI PROVIDER LAYER
+// ─────────────────────────────────────────────
+
+async function callAIWithFallback(
+  systemPrompt: string,
+  messages: { role: string; content: string }[]
+): Promise<string> {
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+
+  console.log(`[AI] Provider Check: Lovable=${!!LOVABLE_API_KEY}, Gemini=${!!GEMINI_API_KEY}`);
+
+  if (LOVABLE_API_KEY) {
+    try {
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          messages: [{ role: "system", content: systemPrompt }, ...messages],
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.choices?.[0]?.message?.content;
+      } else {
+        console.error(`[AI] Lovable API failed: ${resp.status}`, await resp.text());
+      }
+    } catch (e) { console.error("[AI] Lovable Exception:", e); }
+  }
+
+  if (GEMINI_API_KEY) {
+    try {
+      const geminiContents = [
+        { role: "user", parts: [{ text: `SYSTEM INSTRUCTIONS: ${systemPrompt}` }] },
+        { role: "model", parts: [{ text: "Understood." }] },
+        ...messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }))
+      ];
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: geminiContents }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text;
+      } else {
+        console.error(`[AI] Gemini API failed: ${resp.status}`, await resp.text());
+      }
+    } catch (e) { console.error("[AI] Gemini Exception:", e); }
+  }
+
+  return "I'm sorry, I'm having trouble connecting to my brain right now. Please try again soon. 🙏";
+}
+
+// ─────────────────────────────────────────────
+// DYNAMIC AI HANDLERS
+// ─────────────────────────────────────────────
+
+async function handleAIReply(
+  from: string,
+  conversation: any,
+  config: any,
+  knowledge: string,
+  mode: "post_onboarding" | "freeform_qa"
+) {
+  const [{ data: history }, { data: progs }, { data: avail }] = await Promise.all([
+    supabase.from("messages").select("role, content").eq("conversation_id", conversation.id).order("created_at", { ascending: true }).limit(15),
+    supabase.from("programmes").select("id, title, price, duration, level, type").eq("status", "open"),
+    supabase.from("availability").select("day_of_week, start_time, end_time").eq("is_active", true)
+  ]);
+
+  const historyMessages = (history || []).map((m: any) => ({ role: m.role, content: m.content }));
+  const metadata = conversation.metadata || {};
+  const now = new Date();
+
+  const programContext = (progs || []).map((p: any) => `- ${p.title} (${p.level}): ${p.price}, ${p.duration}. ID: ${p.id}`).join("\n");
+  const availabilityContext = (avail || []).map((a: any) => `- Day ${a.day_of_week}: ${a.start_time} - ${a.end_time}`).join("\n");
+
+  const nameContext = metadata.captured_name ? `The user's name is ${metadata.captured_name}.` : "";
+  const onboardingContext = `ONBOARDING CONTEXT:
+Experience: ${metadata.q1_experience || "Unknown"}
+Weekly Time: ${metadata.q2_time || "Unknown"}
+Goal: ${metadata.q3_goal || "Unknown"}`;
+
+  const actionInstructions = `AVAILABILITY & PROGRAMS:
+Available Programs:
+${programContext}
+
+Our Weekly Availability (0=Sun, 1=Mon...):
+${availabilityContext}
+Current Date/Time: ${now.toISOString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })})
+
+TOOLS & ACTIONS:
+You have special tools to help the user. Append them at the end of your message in square brackets.
+1. [ACTION: CREATE_BOOKING {"first_name": "...", "last_name": "...", "email": "...", "phone": "${from}", "programme_id": "...", "booking_date": "YYYY-MM-DD", "start_time": "HH:MM:SS", "is_online": true}]
+   - Use this when a user confirms they want to book a specific program for a specific date/time.
+2. [ACTION: SEND_CONTACT {"name": "...", "email": "...", "subject": "...", "message": "..."}]
+   - Use this for general inquiries, complaints, or if they want a coach to call them back.
+
+RULES:
+- ONLY trigger a booking if you have the User's Name, Email, Choice of Program, and a Date/Time.
+- If info is missing, ask for it politely.
+- Use the Program IDs provided above.`;
+
+  const finalSystemPrompt = `${config.system_prompt}
+
+${config.agent_name} Identity:
+- Tone of Voice: ${config.tone_voice || "Friendly"}
+- Response Style: ${config.response_style || "Concise"}
+
+User Context:
+${nameContext}
+${onboardingContext}
+
+MODE: ${mode === "freeform_qa" ? "Helpful Q&A" : "Post-Onboarding Followup"}
+
+BUSINESS KNOWLEDGE:
+${knowledge}
+
+STRUCTURED FAQs:
+${(config.faqs || []).map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n")}
+
+${actionInstructions}
+
+Always stay in character as ${config.agent_name}.`;
+
+  console.log(`[AI] System Prompt prepared for ${config.agent_name}`);
+  const aiRawResponse = await callAIWithFallback(finalSystemPrompt, historyMessages);
+  
+  console.log(`[AI] Raw Response: ${aiRawResponse}`);
+
+  // Process actions and clean the message
+  const aiResponse = await processAIActions(aiRawResponse);
+  
+  console.log(`[AI] Cleaned Response: ${aiResponse}`);
+
+  // sendTextMessage now handles the database insertion
+  await sendTextMessage(from, aiResponse, conversation.id);
+
+  // Periodic lead extraction
+  if (historyMessages.filter((m: any) => m.role === "user").length % 3 === 0) {
+    const leadPrompt = `${config.lead_qualification_prompt}\nReturn valid JSON.`;
+    const leadRaw = await callAIWithFallback(leadPrompt, historyMessages);
+    const jsonMatch = leadRaw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const leadInfo = JSON.parse(jsonMatch[0]);
+        await supabase.from("leads").upsert({
+          whatsapp_phone: from,
+          conversation_id: conversation.id,
+          name: metadata.captured_name || conversation.whatsapp_name || leadInfo.name,
+          email: leadInfo.email,
+          training_interest: leadInfo.training_interest,
+          experience_level: metadata.q1_experience || leadInfo.experience_level,
+          status: leadInfo.qualification_status,
+          lead_score: leadInfo.lead_score,
+          notes: leadInfo.qualification_reason,
+          extracted_data: leadInfo
+        }, { onConflict: "whatsapp_phone" });
+      } catch (e) { console.error("Lead parse error:", e); }
+    }
   }
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+// ─────────────────────────────────────────────
+// MAIN SERVE HANDLER
+// ─────────────────────────────────────────────
 
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   const url = new URL(req.url);
 
-  // Webhook verification (GET)
   if (req.method === "GET") {
-    const mode = url.searchParams.get("hub.mode");
-    const token = url.searchParams.get("hub.verify_token");
-    const challenge = url.searchParams.get("hub.challenge");
     const verifyToken = Deno.env.get("WHATSAPP_VERIFY_TOKEN");
-
-    if (mode === "subscribe" && token === verifyToken) {
-      console.log("Webhook verified");
-      return new Response(challenge, { status: 200 });
+    if (url.searchParams.get("hub.verify_token") === verifyToken) {
+      return new Response(url.searchParams.get("hub.challenge"), { status: 200 });
     }
     return new Response("Forbidden", { status: 403 });
   }
 
-  // Webhook message (POST)
   if (req.method === "POST") {
     try {
       const body = await req.json();
-      const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+      console.log(`[Webhook] Incoming body:`, JSON.stringify(body));
 
-      if (!message?.text?.body) {
-        return new Response("OK", { status: 200, headers: corsHeaders });
+      const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+      if (!message) {
+        console.log("[Webhook] No valid message found in payload.");
+        return new Response("OK", { status: 200 });
       }
 
       const from = message.from;
-      const contactName = body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || null;
-      const messageText = message.text.body;
+      console.log(`[Webhook] Message from: ${from}`);
+      let text = (message.text?.body || "").trim();
+      let buttonId = "";
 
-      // Get or create conversation
-      let { data: conversation } = await supabase
-        .from("conversations")
-        .select("id")
-        .eq("whatsapp_phone", from)
-        .single();
+      if (message.type === "interactive") {
+        buttonId = message.interactive?.button_reply?.id || "";
+        text = message.interactive?.button_reply?.title || "";
+      }
 
+      const [{ data: config }, { data: kbData }] = await Promise.all([
+        supabase.from("agent_config").select("*").limit(1).single(),
+        supabase.from("knowledge_base").select("content").limit(10)
+      ]);
+      console.log(`[Context] Config: ${config?.agent_name}, KB Entries: ${kbData?.length || 0}`);
+
+      const knowledge = kbData?.map((k: any) => k.content).join("\n\n") || "";
+      if (!config) throw new Error("Config not found");
+
+      let { data: conversation } = await supabase.from("conversations").select("*").eq("whatsapp_phone", from).single();
       if (!conversation) {
-        const { data: newConv } = await supabase
-          .from("conversations")
-          .insert({ whatsapp_phone: from, whatsapp_name: contactName })
-          .select("id")
-          .single();
+        const { data: newConv } = await supabase.from("conversations").insert({
+          whatsapp_phone: from,
+          whatsapp_name: body?.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name,
+          metadata: { onboarding_state: "idle" }
+        }).select("*").single();
         conversation = newConv;
-      } else if (contactName) {
-        await supabase
-          .from("conversations")
-          .update({ whatsapp_name: contactName, updated_at: new Date().toISOString() })
-          .eq("id", conversation.id);
       }
 
-      if (!conversation) {
-        console.error("Failed to create/get conversation");
-        return new Response("Error", { status: 500, headers: corsHeaders });
-      }
+      const metadata = conversation.metadata || {};
+      let state = metadata.onboarding_state || "idle";
+      console.log(`[State] Conversation ID: ${conversation.id}, Current State: ${state}`);
 
-      // Save user message
+      // Log incoming user message
       await supabase.from("messages").insert({
         conversation_id: conversation.id,
         role: "user",
-        content: messageText,
+        content: text || buttonId
       });
 
-      // Get conversation history
-      const { data: history } = await supabase
-        .from("messages")
-        .select("role, content")
-        .eq("conversation_id", conversation.id)
-        .order("created_at", { ascending: true })
-        .limit(20);
+      const quiz = config.onboarding_quiz || {};
+      const menu = config.initial_menu || {};
 
-      const conversationMessages = (history || []).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      // Generate AI response
-      const aiResponse = await callAI(conversationMessages);
-
-      // Save assistant message
-      await supabase.from("messages").insert({
-        conversation_id: conversation.id,
-        role: "assistant",
-        content: aiResponse,
-      });
-
-      // Update conversation timestamp
-      await supabase
-        .from("conversations")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", conversation.id);
-
-      // Extract lead info every 3 messages or on first 2
-      if (conversationMessages.length % 3 === 0 || conversationMessages.length <= 2) {
-        const leadInfo = await extractLeadInfo(conversationMessages);
-        if (Object.keys(leadInfo).length > 0) {
-          const leadData: Record<string, any> = {
-            conversation_id: conversation.id,
-            whatsapp_phone: from,
-            extracted_data: leadInfo,
-          };
-          if (leadInfo.name) {
-            leadData.name = leadInfo.name;
-            // Update conversation with the extracted name so it shows in the chat sidebar
-            await supabase
-              .from("conversations")
-              .update({ whatsapp_name: leadInfo.name })
-              .eq("id", conversation.id);
-          }
-          if (leadInfo.email) leadData.email = leadInfo.email;
-          if (leadInfo.training_interest) leadData.training_interest = leadInfo.training_interest;
-          if (leadInfo.experience_level) leadData.experience_level = leadInfo.experience_level;
-          if (typeof leadInfo.lead_score === "number") leadData.lead_score = leadInfo.lead_score;
-
-          // Map qualification status directly to lead status
-          if (leadInfo.qualification_status && ["new","contacted","nurturing","qualified","proposal","negotiation","converted","lost"].includes(leadInfo.qualification_status)) {
-            leadData.status = leadInfo.qualification_status;
-          }
-
-          // Store notes with reasoning, next action, and objections
-          const notes: string[] = [];
-          if (leadInfo.qualification_reason) notes.push(`AI Reasoning: ${leadInfo.qualification_reason}`);
-          if (leadInfo.next_action) notes.push(`Next: ${leadInfo.next_action}`);
-          if (leadInfo.objections) notes.push(`Objections: ${leadInfo.objections}`);
-          if (leadInfo.key_interests?.length) notes.push(`Interests: ${leadInfo.key_interests.join(", ")}`);
-          if (notes.length) leadData.notes = notes.join(" | ");
-
-          await supabase
-            .from("leads")
-            .upsert(leadData, { onConflict: "whatsapp_phone" });
+      // STATE MACHINE
+      if (state === "idle") {
+        if (isAdTrigger(text, config.ad_trigger_keywords || [])) {
+          await sendInteractiveButtons(from, quiz.welcome.body, quiz.welcome.buttons, conversation.id);
+          state = "q1_pending";
+        } else {
+          await sendInteractiveButtons(from, menu.body, menu.buttons, conversation.id);
+          state = "choice_pending";
         }
+      } else if (state === "choice_pending") {
+        if (buttonId === "choice_learn" || isAdTrigger(text, config.ad_trigger_keywords || [])) {
+          await sendInteractiveButtons(from, quiz.welcome.body, quiz.welcome.buttons, conversation.id);
+          state = "q1_pending";
+        } else if (buttonId === "choice_ask") {
+          await sendTextMessage(from, "Sure! 💬 Ask me anything about trading.", conversation.id);
+          state = "freeform";
+        } else {
+          await sendInteractiveButtons(from, menu.body, menu.buttons, conversation.id);
+        }
+      } else if (state === "q1_pending" && buttonId === "start_yes") {
+        const q = quiz.questions[0];
+        await sendInteractiveButtons(from, q.text, q.options, conversation.id);
+        state = "q1_answered";
+      } else if (state === "q1_answered") {
+        metadata.q1_experience = buttonId || text;
+        const q = quiz.questions[1];
+        await sendInteractiveButtons(from, q.text, q.options, conversation.id);
+        state = "q2_answered";
+      } else if (state === "q2_answered") {
+        metadata.q2_time = buttonId || text;
+        const q = quiz.questions[2];
+        await sendInteractiveButtons(from, q.text, q.options, conversation.id);
+        state = "q3_answered";
+      } else if (state === "q3_answered") {
+        metadata.q3_goal = buttonId || text;
+        const rec = quiz.recommendation;
+        const isIntermediate = rec.intermediate_triggers?.includes(metadata.q1_experience);
+        const bodyText = rec.base_text.replace("{program}", isIntermediate ? "Intermediate" : "Beginner");
+        await sendInteractiveButtons(from, bodyText, [rec.details_button], conversation.id);
+        state = "details_pending";
+      } else if (state === "details_pending" && buttonId === "send_details") {
+        await sendTextMessage(from, `Details: ${quiz.details.link}`, conversation.id);
+        await sendTextMessage(from, quiz.details.message, conversation.id);
+        state = "name_pending";
+      } else if (state === "name_pending") {
+        metadata.captured_name = text;
+        await sendTextMessage(from, quiz.handoff.replace("{name}", text), conversation.id);
+        state = "name_done";
+      } else if (state === "freeform") {
+        await handleAIReply(from, conversation, config, knowledge, "freeform_qa");
+      } else {
+        await handleAIReply(from, conversation, config, knowledge, "post_onboarding");
       }
 
-      // Send reply via WhatsApp
-      await sendWhatsAppMessage(from, aiResponse);
-
-      return new Response("OK", { status: 200, headers: corsHeaders });
-    } catch (error) {
-      console.error("Webhook error:", error);
-      return new Response("Error", { status: 500, headers: corsHeaders });
+      metadata.onboarding_state = state;
+      console.log(`[State] New State: ${state}`);
+      await supabase.from("conversations").update({ metadata }).eq("id", conversation.id);
+      return new Response("OK", { status: 200 });
+    } catch (e) {
+      console.error("Webhook error:", e);
+      return new Response("Error", { status: 500 });
     }
   }
-
-  return new Response("Method not allowed", { status: 405 });
+  return new Response("Not Found", { status: 404 });
 });

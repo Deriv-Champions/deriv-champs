@@ -24,10 +24,10 @@ export default function About() {
           <div className="absolute inset-0 bg-black/82" />
         </div>
         <div className="relative z-10 max-w-6xl mx-auto px-6">
-          <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "hsl(22 100% 50%)" }}>
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] mb-4 text-primary">
             Your Mentor
           </p>
-          <h1 className="text-5xl md:text-6xl font-black text-white leading-tight">
+          <h1 className="text-3xl md:text-5xl lg:text-6xl font-black text-white leading-[1.1] tracking-tight mb-6 mobile-text-balance">
             Trained by experience.
           </h1>
           <p className="text-white/50 mt-5 max-w-xl leading-relaxed text-sm">
@@ -49,35 +49,35 @@ export default function About() {
                   className="object-cover object-top"
                 />
               </div>
-              <div className="mt-6 p-5 bg-card border border-border rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: "hsl(22 100% 50%)" }} />
-                  <span className="text-foreground font-semibold text-sm">Steve</span>
-                  <span className="text-muted-foreground text-sm">— Founder & Head Mentor</span>
+              <div className="mt-4 md:mt-6">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: "hsl(22 100% 50%)" }} />
+                  <span className="text-foreground font-black text-xs uppercase tracking-widest">Steve</span>
+                  <span className="text-muted-foreground text-[10px] uppercase tracking-wider">— Founder & Mentor</span>
                 </div>
-                <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                  <MapPin className="w-4 h-4 flex-shrink-0" />
+                <div className="flex items-center gap-2 text-muted-foreground text-xs italic opacity-80">
+                  <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
                   Kisumu, Kenya — In-person & Online
                 </div>
               </div>
             </div>
 
             <div>
-              <h2 className="text-3xl font-bold text-foreground mb-6">
+              <h2 className="text-xl md:text-3xl font-black text-foreground mb-6 leading-tight tracking-tight">
                 An active Deriv trader specialising in currency pairs, Gold (XAU/USD), and binary options.
               </h2>
-              <p className="text-muted-foreground leading-relaxed mb-5 text-sm">
+              <p className="text-muted-foreground leading-relaxed mb-5 text-xs md:text-sm italic border-l-2 border-primary/20 pl-4">
                 Steve's training is built on real market experience — not theory. His mission is to help serious traders build a foundation that lasts. He brings years of disciplined market experience directly to you.
               </p>
-              <p className="text-muted-foreground leading-relaxed mb-10 text-sm">
+              <p className="text-muted-foreground leading-relaxed mb-10 text-xs md:text-sm opacity-80">
                 Whether you're trading currency pairs, Gold (XAU/USD), or leveraging the Deriv Binary Options platform, success requires a proven edge. Steve helps you build that edge through deliberate, structured practice and honest self-assessment.
               </p>
 
-              <div className="grid grid-cols-2 gap-3 mb-10">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-10">
                 {["Deriv Platform", "Forex Currencies", "Gold (XAU/USD)", "Binary Options"].map((skill) => (
-                  <div key={skill} className="flex items-center gap-2.5 px-4 py-3 bg-card border border-border rounded-lg">
+                  <div key={skill} className="flex items-center gap-2.5">
                     <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: "hsl(22 100% 50%)" }} />
-                    <span className="text-foreground text-sm font-medium">{skill}</span>
+                    <span className="text-foreground text-[11px] font-black uppercase tracking-widest">{skill}</span>
                   </div>
                 ))}
               </div>
@@ -85,14 +85,14 @@ export default function About() {
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link
                   href="/contact"
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded text-sm font-bold text-white hover:opacity-90 transition-opacity"
+                  className="inline-flex items-center justify-center gap-3 px-8 py-3 rounded-full text-xs font-black uppercase tracking-widest text-white hover:opacity-90 transition-all shadow-xl shadow-primary/20"
                   style={{ backgroundColor: "hsl(22 100% 50%)" }}
                 >
                   Book with Steve <ArrowRight className="w-4 h-4" />
                 </Link>
                 <a
                   href="tel:+254726043830"
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded text-sm font-semibold text-foreground border border-border hover:border-primary/60 transition-colors"
+                  className="inline-flex items-center justify-center gap-3 px-8 py-3 rounded-full text-xs font-black uppercase tracking-widest text-foreground border border-border/50 hover:bg-muted transition-all"
                 >
                   <Phone className="w-4 h-4" />
                   +254 726 043 830
@@ -106,18 +106,18 @@ export default function About() {
       {/* STATS */}
       <section className="py-20 bg-muted border-t border-border">
         <div className="max-w-6xl mx-auto px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-12">
             {[
-              { value: "500+", label: "Students Trained" },
-              { value: "5+", label: "Years Experience" },
-              { value: "3", label: "Instruments Mastered" },
-              { value: "2", label: "Learning Formats" },
+              { value: "500+", label: "Trained" },
+              { value: "5+", label: "Exp" },
+              { value: "3", label: "Instr." },
+              { value: "2", label: "Paths" },
             ].map((stat) => (
-              <div key={stat.label} className="text-center p-6 bg-card border border-border rounded-lg">
-                <p className="text-4xl font-black mb-2" style={{ color: "hsl(22 100% 50%)" }}>
+              <div key={stat.label} className="text-center group">
+                <p className="text-3xl md:text-4xl lg:text-5xl font-black mb-2 tracking-tighter" style={{ color: "hsl(22 100% 50%)" }}>
                   {stat.value}
                 </p>
-                <p className="text-muted-foreground text-sm">{stat.label}</p>
+                <p className="text-muted-foreground text-[10px] font-black uppercase tracking-[0.2em] opacity-60 group-hover:opacity-100 transition-opacity whitespace-nowrap">{stat.label}</p>
               </div>
             ))}
           </div>
@@ -129,20 +129,20 @@ export default function About() {
         <div className="max-w-6xl mx-auto px-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: "hsl(22 100% 50%)" }}>
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] mb-4 text-primary">
                 Get Started
               </p>
-              <h2 className="text-4xl font-black text-foreground mb-5">
+              <h2 className="text-2xl md:text-3xl lg:text-4xl font-black text-foreground mb-5 tracking-tight">
                 Open a Deriv trading account
               </h2>
-              <p className="text-muted-foreground leading-relaxed text-sm mb-8">
+              <p className="text-muted-foreground leading-relaxed text-xs md:text-sm mb-8 italic border-l-2 border-primary/20 pl-4 opacity-80">
                 Free to sign up. Start trading today on the platform Steve uses for all training sessions. No obligation — just the first step toward mastery.
               </p>
               <a
                 href="https://deriv.com"
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 px-7 py-3.5 rounded text-sm font-bold text-white hover:opacity-90 transition-opacity"
+                className="inline-flex items-center gap-3 px-8 py-3 rounded-full text-xs font-black uppercase tracking-widest text-white hover:opacity-90 transition-all shadow-xl shadow-primary/20"
                 style={{ backgroundColor: "hsl(22 100% 50%)" }}
               >
                 Open Deriv Account <ArrowRight className="w-4 h-4" />

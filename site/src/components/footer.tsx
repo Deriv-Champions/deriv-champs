@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Phone, MapPin } from "lucide-react";
 
 export function Footer() {
@@ -8,15 +9,13 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
           <div className="md:col-span-2">
             <div className="flex items-center gap-2 mb-4">
-              <span
-                className="w-8 h-8 rounded flex items-center justify-center text-white font-black text-xs flex-shrink-0"
-                style={{ backgroundColor: "hsl(22 100% 50%)" }}
-              >
-                DC
-              </span>
-              <span className="font-bold text-foreground">
-                DERIV <span className="text-muted-foreground font-normal">CHAMPIONS</span>
-              </span>
+              <Image 
+                src="/deriv-logo.png" 
+                alt="Deriv Champions" 
+                width={150} 
+                height={50} 
+                className="h-10 w-auto object-contain dark:invert-[0.1] brightness-110"
+              />
             </div>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-xs">
               Professional forex and binary options training by Steve — Deriv specialist based in Kisumu, Kenya.

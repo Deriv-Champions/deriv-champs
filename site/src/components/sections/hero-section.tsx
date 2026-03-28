@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 
 export function HeroSection() {
   return (
-    <section className="relative min-h-[90vh] flex items-center pt-24 pb-16 overflow-hidden bg-background">
+    <section className="relative min-h-[90vh] lg:min-h-[85vh] flex items-center pt-28 pb-12 md:pt-32 md:pb-24 overflow-hidden bg-background">
       {/* Background Grid and Glow */}
       <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
       <div className="absolute top-1/4 right-1/4 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[120px] pointer-events-none" />
@@ -15,11 +15,12 @@ export function HeroSection() {
       <div className="container relative z-10 max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
         {/* Left Column: Content */}
         <motion.div 
-          initial={{ opacity: 0, x: -30 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.6 }}
+          initial={{ opacity: 1, x: 0 }}
+          whileInView={{ opacity: 1, x: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.4 }}
         >
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold uppercase tracking-wider mb-6">
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-wider mb-6">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
@@ -27,45 +28,46 @@ export function HeroSection() {
             Train Smart, Trade Stronger
           </div>
           
-          <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-[0.95] mb-6">
+          <h1 className="text-3xl md:text-4xl lg:text-5xl font-black tracking-tight leading-[1.05] mb-6 decoration-primary/20 underline-offset-8 mobile-text-balance">
             Elevate Your <br />
             Wealth with <span className="text-primary italic">Intelligent</span> <br />
             Trading.
           </h1>
           
-          <p className="text-sm text-muted-foreground max-w-lg mb-10 leading-relaxed">
+          <p className="text-[12px] md:text-sm text-muted-foreground max-w-lg mb-8 md:mb-10 leading-relaxed italic opacity-90 border-l-2 border-primary/20 pl-4 md:pl-6">
             Markets reward those who master their craft. We train serious traders to build the skills, structure, and mental edge needed to perform consistently on Deriv.
           </p>
           
           <div className="flex flex-wrap items-center gap-6">
             <Link
               href="/contact"
-              className="group relative inline-flex items-center gap-2 px-8 py-4 bg-primary text-white font-bold rounded-lg orange-glow hover:orange-glow-lg transition-all duration-300"
+              className="group relative inline-flex items-center gap-2 px-6 md:px-8 py-3.5 bg-primary text-white font-black text-[10px] md:text-xs uppercase tracking-widest rounded-full orange-glow hover:orange-glow-lg transition-all duration-300 w-full sm:w-auto justify-center"
             >
-              Start Trading <MoveUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              Book a Session <MoveUpRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </Link>
             
             <Link
               href="/programmes"
-              className="text-sm font-bold flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors group"
+              className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors group"
             >
-              <div className="w-10 h-[1px] bg-muted-foreground/30 group-hover:bg-primary group-hover:w-14 transition-all" />
-              Try demo account
+              <div className="w-8 h-[1px] bg-muted-foreground/30 group-hover:bg-primary group-hover:w-12 transition-all" />
+              View Programmes
             </Link>
           </div>
         </motion.div>
 
         {/* Right Column: 3D Mockup + Floating Cards */}
         <motion.div 
-          initial={{ opacity: 0, scale: 0.9, rotateY: 10 }}
-          animate={{ opacity: 1, scale: 1, rotateY: 0 }}
-          transition={{ duration: 0.8, delay: 0.2 }}
+          initial={{ opacity: 1, scale: 1 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6 }}
           className="relative"
           style={{ perspective: "1000px" }}
         >
           {/* Main Phone Image */}
-          <div className="relative z-10 w-full max-w-[450px] mx-auto">
-            <div className="relative aspect-[4/5] w-full rounded-[3rem] overflow-hidden border-8 border-background/20 shadow-2xl">
+          <div className="relative z-10 w-full max-w-[320px] sm:max-w-[450px] mx-auto scale-90 sm:scale-100">
+            <div className="relative aspect-[4/5] w-full rounded-[2.5rem] sm:rounded-[3rem] overflow-hidden border-4 sm:border-8 border-background/20 shadow-2xl">
               <Image
                 src="/trader_phone_mockup.png" 
                 alt="Trading App Mockup"

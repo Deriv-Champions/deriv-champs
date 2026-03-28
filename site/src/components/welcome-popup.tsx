@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, TrendingUp } from "lucide-react";
+import { X } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 
 export function WelcomePopup() {
   const [isOpen, setIsOpen] = useState(false);
@@ -37,7 +38,7 @@ export function WelcomePopup() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.94, y: 16 }}
             transition={{ type: "spring", damping: 28, stiffness: 340 }}
-            className="relative w-full max-w-md bg-card border border-border rounded-xl p-8 shadow-2xl text-center"
+            className="relative w-full max-w-sm sm:max-w-md bg-card border border-border rounded-2xl p-6 sm:p-10 shadow-2xl text-center"
           >
             <button
               onClick={dismiss}
@@ -46,32 +47,35 @@ export function WelcomePopup() {
               <X className="w-4 h-4" />
             </button>
 
-            <div
-              className="mx-auto w-14 h-14 rounded-full flex items-center justify-center mb-6"
-              style={{ backgroundColor: "hsl(22 100% 50%)" }}
-            >
-              <TrendingUp className="w-7 h-7 text-white" />
+            <div className="mx-auto flex items-center justify-center mb-6">
+              <Image 
+                src="/deriv-logo.png" 
+                alt="Deriv Champions" 
+                width={80} 
+                height={80} 
+                className="h-14 w-auto object-contain"
+              />
             </div>
 
             <h2 className="text-2xl font-bold text-foreground mb-3">
               Welcome to Deriv Champions
             </h2>
-            <p className="text-muted-foreground text-sm leading-relaxed mb-8">
-              Markets reward those who master their craft. Ready to build the skills, structure, and mental edge to trade consistently?
+            <p className="text-muted-foreground text-[13px] md:text-sm leading-relaxed mb-8 md:mb-10 opacity-80 italic">
+              "Every champion was once a contender that refused to give up." Ready to build the skills, structure, and mental edge?
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3">
               <Link
                 href="/contact"
                 onClick={dismiss}
-                className="flex-1 py-2.5 rounded text-sm font-semibold text-white text-center hover:opacity-90 transition-opacity"
+                className="flex-1 py-3 md:py-3.5 rounded-full text-[10px] md:text-xs font-black uppercase tracking-widest text-white text-center hover:opacity-90 transition-all shadow-xl shadow-primary/20"
                 style={{ backgroundColor: "hsl(22 100% 50%)" }}
               >
                 Book a Session
               </Link>
               <button
                 onClick={dismiss}
-                className="flex-1 py-2.5 rounded text-sm font-semibold text-foreground border border-border hover:bg-muted transition-colors"
+                className="flex-1 py-3 md:py-3.5 rounded-full text-[10px] md:text-xs font-black uppercase tracking-widest text-foreground border border-border hover:bg-muted transition-colors"
               >
                 Explore First
               </button>

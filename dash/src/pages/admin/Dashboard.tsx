@@ -102,34 +102,36 @@ const Dashboard = () => {
   return (
     <div className="space-y-6">
       {/* Greeting */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-bold">{greeting()}, Admin 👋</h1>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
-            <span className="flex items-center gap-1"><CalendarDays className="h-4 w-4" />{format(now, "EEEE, MMMM do yyyy")}</span>
-            <span className="flex items-center gap-1"><Clock className="h-4 w-4" />{format(now, "hh:mm a")}</span>
+          <h1 className="text-2xl md:text-3xl font-bold">{greeting()}, Admin 👋</h1>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-2">
+            <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4 text-primary" />{format(now, "EEEE, MMMM do yyyy")}</span>
+            <span className="flex items-center gap-1.5"><Clock className="h-4 w-4 text-primary" />{format(now, "hh:mm a")}</span>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          <Button asChild size="sm"><Link to="/admin/conversations"><MessageSquare className="mr-1 h-4 w-4" />View Chats</Link></Button>
-          <Button asChild size="sm" variant="outline"><Link to="/admin/leads"><Users className="mr-1 h-4 w-4" />View Leads</Link></Button>
-          <Button asChild size="sm" variant="outline"><Link to="/admin/config"><Settings className="mr-1 h-4 w-4" />Configure Bot</Link></Button>
+        <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+          <Button asChild size="sm" className="flex-1 sm:flex-none"><Link to="/admin/conversations"><MessageSquare className="mr-2 h-4 w-4" />View Chats</Link></Button>
+          <Button asChild size="sm" variant="outline" className="flex-1 sm:flex-none"><Link to="/admin/leads"><Users className="mr-2 h-4 w-4" />View Leads</Link></Button>
+          <Button asChild size="sm" variant="outline" className="flex-1 sm:flex-none"><Link to="/admin/config"><Settings className="mr-2 h-4 w-4" />Configure Bot</Link></Button>
         </div>
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {statCards.map((card) => {
           const inner = (
-            <Card className="hover:shadow-md transition-shadow cursor-pointer">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className={`p-2 rounded-lg ${card.color}`}>
+            <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
+              <CardContent className="p-4 flex flex-col justify-between">
+                <div className="flex items-center justify-between mb-3">
+                  <div className={`p-2.5 rounded-xl ${card.color}`}>
                     <card.icon className="h-4 w-4" />
                   </div>
                 </div>
-                <p className="text-2xl font-bold">{card.value}</p>
-                <p className="text-xs text-muted-foreground">{card.title}</p>
+                <div>
+                  <p className="text-2xl font-bold tracking-tight">{card.value}</p>
+                  <p className="text-sm font-medium text-muted-foreground mt-0.5">{card.title}</p>
+                </div>
               </CardContent>
             </Card>
           );

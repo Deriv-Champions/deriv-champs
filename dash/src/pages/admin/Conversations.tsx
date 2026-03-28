@@ -44,6 +44,7 @@ const Conversations = () => {
 
   useEffect(() => {
     if (!selected) return;
+    
     const fetchMessages = async () => {
       const { data } = await supabase
         .from("messages")
@@ -52,7 +53,30 @@ const Conversations = () => {
         .order("created_at", { ascending: true });
       setMessages((data as Message[]) || []);
     };
+    
     fetchMessages();
+
+    // Subscribe to new messages for the selected conversation
+    const channel = supabase
+      .channel(`messages:${selected}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${selected}`
+        },
+        (payload) => {
+          console.log("New message received:", payload.new);
+          setMessages((prev) => [...prev, payload.new as Message]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [selected]);
 
   const selectedConv = conversations.find((c) => c.id === selected);

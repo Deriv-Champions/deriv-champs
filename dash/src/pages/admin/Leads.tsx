@@ -9,8 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Download, FileText, Eye } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { exportToCSV, exportToPDF } from "@/lib/exportUtils";
 
 interface Lead {
   id: string;
@@ -70,43 +69,35 @@ const Leads = () => {
     fetchLeads();
   };
 
-  const exportCSV = () => {
+  const handleExportCSV = () => {
     if (leads.length === 0) return toast.error("No leads to export");
-    const headers = ["Name", "Phone", "Email", "Interest", "Experience", "Score", "Status", "Notes", "Created"];
-    const rows = leads.map(l => [
-      l.name || "", l.whatsapp_phone, l.email || "", l.training_interest || "",
-      l.experience_level || "", l.lead_score, l.status, l.notes || "",
-      new Date(l.created_at).toLocaleDateString(),
-    ]);
-    const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `leads_${filter}_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
-    URL.revokeObjectURL(url);
+    const exportData = leads.map(l => ({
+      Name: l.name || "—",
+      Phone: l.whatsapp_phone,
+      Email: l.email || "—",
+      Interest: l.training_interest || "—",
+      Experience: l.experience_level || "—",
+      Score: l.lead_score,
+      Status: l.status,
+      Notes: l.notes || "—",
+      Created: new Date(l.created_at).toLocaleDateString()
+    }));
+    exportToCSV(exportData, `leads_${filter}_${new Date().toISOString().slice(0, 10)}`);
     toast.success("CSV exported");
   };
 
-  const exportPDF = () => {
+  const handleExportPDF = async () => {
     if (leads.length === 0) return toast.error("No leads to export");
-    const doc = new jsPDF();
-    doc.setFontSize(18);
-    doc.text("Deriv Champions - Leads Report", 14, 22);
-    doc.setFontSize(10);
-    doc.text(`Filter: ${filter === "all" ? "All" : filter} | Date: ${new Date().toLocaleDateString()}`, 14, 30);
-
-    autoTable(doc, {
-      startY: 36,
-      head: [["Name", "Phone", "Interest", "Experience", "Score", "Status"]],
-      body: leads.map(l => [
-        l.name || "—", l.whatsapp_phone, l.training_interest || "—",
-        l.experience_level || "—", l.lead_score, l.status,
-      ]),
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [245, 124, 0] },
-    });
-
-    doc.save(`leads_${filter}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    const headers = ["Name", "Phone", "Interest", "Experience", "Score", "Status"];
+    const data = leads.map(l => [
+      l.name || "—",
+      l.whatsapp_phone,
+      l.training_interest || "—",
+      l.experience_level || "—",
+      l.lead_score,
+      l.status
+    ]);
+    await exportToPDF(headers, data, `leads_${filter}_report`, "Deriv Champions - Leads Report");
     toast.success("PDF exported");
   };
 
@@ -137,8 +128,8 @@ const Leads = () => {
               {STAGES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="mr-1 h-4 w-4" />CSV</Button>
-          <Button variant="outline" size="sm" onClick={exportPDF}><FileText className="mr-1 h-4 w-4" />PDF</Button>
+          <Button variant="outline" size="sm" onClick={handleExportCSV}><Download className="mr-1 h-4 w-4" />CSV</Button>
+          <Button variant="outline" size="sm" onClick={handleExportPDF}><FileText className="mr-1 h-4 w-4" />PDF</Button>
         </div>
       </div>
 
@@ -165,59 +156,61 @@ const Leads = () => {
 
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Interest</TableHead>
-                <TableHead>Experience</TableHead>
-                <TableHead>Score</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Reasoning</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {leads.map((lead) => (
-                <TableRow key={lead.id}>
-                  <TableCell className="font-medium">{lead.name || "—"}</TableCell>
-                  <TableCell>{lead.whatsapp_phone}</TableCell>
-                  <TableCell>{lead.training_interest || "—"}</TableCell>
-                  <TableCell>{lead.experience_level || "—"}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="w-12 h-2 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${lead.lead_score}%` }} />
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-[150px]">Name</TableHead>
+                  <TableHead className="w-[150px]">Phone</TableHead>
+                  <TableHead className="min-w-[150px]">Interest</TableHead>
+                  <TableHead className="w-[120px]">Experience</TableHead>
+                  <TableHead className="w-[120px]">Score</TableHead>
+                  <TableHead className="w-[150px]">Status</TableHead>
+                  <TableHead className="w-[100px] text-right">Reasoning</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {leads.map((lead) => (
+                  <TableRow key={lead.id}>
+                    <TableCell className="font-medium">{lead.name || "—"}</TableCell>
+                    <TableCell>{lead.whatsapp_phone}</TableCell>
+                    <TableCell>{lead.training_interest || "—"}</TableCell>
+                    <TableCell>{lead.experience_level || "—"}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="w-12 h-2 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-primary rounded-full" style={{ width: `${lead.lead_score}%` }} />
+                        </div>
+                        <span className="text-xs text-muted-foreground">{lead.lead_score}</span>
                       </div>
-                      <span className="text-xs text-muted-foreground">{lead.lead_score}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Select value={lead.status} onValueChange={(v) => updateStatus(lead.id, v)}>
-                      <SelectTrigger className="w-32 h-8">
-                        <Badge variant={statusColors[lead.status] || "secondary"}>{lead.status}</Badge>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STAGES.filter(s => s.value !== "all").map(s => (
-                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm" onClick={() => setSelectedLead(lead)}>
-                      <Eye className="h-4 w-4 mr-1" />View
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {leads.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No leads found</TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+                    </TableCell>
+                    <TableCell>
+                      <Select value={lead.status} onValueChange={(v) => updateStatus(lead.id, v)}>
+                        <SelectTrigger className="w-32 h-8">
+                          <Badge variant={statusColors[lead.status] || "secondary"}>{lead.status}</Badge>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STAGES.filter(s => s.value !== "all").map(s => (
+                            <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" onClick={() => setSelectedLead(lead)}>
+                        <Eye className="h-4 w-4 mr-1" />View
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {leads.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No leads found</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
