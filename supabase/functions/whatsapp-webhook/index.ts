@@ -11,862 +11,695 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+// ─────────────────────────────────────────────
+// WHATSAPP MESSAGE SENDERS
+// ─────────────────────────────────────────────
 
-// ═══════════════════════════════════════════════════════
-// WhatsApp Messaging Helpers
-// ═══════════════════════════════════════════════════════
-
-function waHeaders() {
+async function sendText(to: string, text: string, convId?: string) {
   const token = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
-  if (!token) throw new Error("WHATSAPP_ACCESS_TOKEN not configured");
-  return {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-  };
-}
-
-function waUrl() {
   const phoneId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
-  if (!phoneId) throw new Error("WHATSAPP_PHONE_NUMBER_ID not configured");
-  return `https://graph.facebook.com/v21.0/${phoneId}/messages`;
-}
+  if (!token || !phoneId) throw new Error("WhatsApp credentials missing");
 
-async function sendText(to: string, text: string) {
-  const r = await fetch(waUrl(), {
+  if (convId) {
+    await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: text });
+  }
+
+  const resp = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
     method: "POST",
-    headers: waHeaders(),
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body: text },
-    }),
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "text", text: { body: text } }),
   });
-  if (!r.ok) console.error("WA text error:", r.status, await r.text());
+  if (!resp.ok) console.error("[WA] Text send error:", resp.status, await resp.text());
 }
 
-async function sendButtons(to: string, bodyText: string, buttons: { id: string; title: string }[]) {
-  const r = await fetch(waUrl(), {
+// WhatsApp button rules: max 3 buttons, title max 20 chars, id max 256 chars
+function sanitizeButtons(buttons: { id: string; title: string }[]): { id: string; title: string }[] {
+  return buttons.slice(0, 3).map(b => ({
+    id: (b.id || "btn").substring(0, 256),
+    title: (b.title || "Option").substring(0, 20),
+  }));
+}
+
+async function sendButtons(to: string, bodyText: string, buttons: { id: string; title: string }[], convId?: string) {
+  const token = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+  const phoneId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
+  if (!token || !phoneId) throw new Error("WhatsApp credentials missing");
+
+  const safeButtons = sanitizeButtons(buttons);
+  // Body text max 1024 chars for WhatsApp
+  const safeBody = bodyText.substring(0, 1024);
+
+  if (convId) {
+    const btnList = safeButtons.map(b => b.title).join(", ");
+    await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: `${safeBody}\n\n[Buttons: ${btnList}]` });
+  }
+
+  const resp = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
     method: "POST",
-    headers: waHeaders(),
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       messaging_product: "whatsapp",
       to,
       type: "interactive",
       interactive: {
         type: "button",
-        body: { text: bodyText },
+        body: { text: safeBody },
         action: {
-          buttons: buttons.map((b) => ({
-            type: "reply",
-            reply: { id: b.id, title: b.title },
-          })),
+          buttons: safeButtons.map(b => ({ type: "reply", reply: { id: b.id, title: b.title } })),
         },
       },
     }),
   });
-  if (!r.ok) console.error("WA buttons error:", r.status, await r.text());
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.error("[WA] Button send error:", resp.status, errText);
+    // Fallback: send as plain text if buttons fail
+    await sendText(to, `${safeBody}\n\nOptions: ${safeButtons.map(b => `• ${b.title}`).join("\n")}`, undefined);
+  }
 }
 
-async function sendList(to: string, bodyText: string, btnLabel: string, sections: any[]) {
-  const r = await fetch(waUrl(), {
-    method: "POST",
-    headers: waHeaders(),
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "list",
-        body: { text: bodyText },
-        action: { button: btnLabel, sections },
-      },
-    }),
-  });
-  if (!r.ok) console.error("WA list error:", r.status, await r.text());
+// ─────────────────────────────────────────────
+// AI PROVIDER LAYER
+// ─────────────────────────────────────────────
+
+async function callAI(systemPrompt: string, messages: { role: string; content: string }[]): Promise<string> {
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+
+  if (LOVABLE_API_KEY) {
+    try {
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          messages: [{ role: "system", content: systemPrompt }, ...messages],
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.choices?.[0]?.message?.content || "";
+      }
+      console.error(`[AI] Lovable failed: ${resp.status}`, await resp.text());
+    } catch (e) { console.error("[AI] Lovable error:", e); }
+  }
+
+  if (GEMINI_API_KEY) {
+    try {
+      const contents = [
+        { role: "user", parts: [{ text: `SYSTEM: ${systemPrompt}` }] },
+        { role: "model", parts: [{ text: "Understood." }] },
+        ...messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }))
+      ];
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      }
+      console.error(`[AI] Gemini failed: ${resp.status}`, await resp.text());
+    } catch (e) { console.error("[AI] Gemini error:", e); }
+  }
+
+  return "I'm having trouble right now. Please try again soon. 🙏";
 }
 
-// ═══════════════════════════════════════════════════════
-// Database Fetchers
-// ═══════════════════════════════════════════════════════
+// ─────────────────────────────────────────────
+// ACTION PROCESSING (Booking & Contact from AI)
+// ─────────────────────────────────────────────
 
-async function fetchAllContext() {
-  const [cfgR, prgR, avlR, kbR] = await Promise.all([
-    supabase.from("agent_config").select("*").limit(1).single(),
-    supabase.from("programmes").select("*").eq("status", "open"),
-    supabase.from("availability").select("*").eq("is_active", true).order("day_of_week"),
-    supabase.from("knowledge_base").select("*").eq("is_active", true),
+async function processActions(text: string): Promise<string> {
+  let clean = text;
+  const regex = /\[ACTION:\s*(\w+)\s*(\{[\s\S]*?\})\]/g;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    const [fullTag, action, jsonStr] = match;
+    try {
+      const p = JSON.parse(jsonStr);
+      if (action === "CREATE_BOOKING") {
+        await supabase.from("bookings").insert({
+          first_name: p.first_name, last_name: p.last_name || "",
+          email: p.email, phone: p.phone, programme_id: p.programme_id,
+          booking_date: p.booking_date, start_time: p.start_time,
+          is_online: p.is_online ?? true, message: p.message || "Booked via AI", status: "pending"
+        });
+      } else if (action === "SEND_CONTACT") {
+        await supabase.from("contact_messages").insert({
+          name: p.name, email: p.email, subject: p.subject || "WhatsApp Inquiry",
+          message: p.message, status: "unread"
+        });
+      }
+      clean = clean.replace(fullTag, "");
+    } catch (e) { console.error("Action error:", e); }
+  }
+  return clean.trim();
+}
+
+// ─────────────────────────────────────────────
+// CONTEXT FETCHERS
+// ─────────────────────────────────────────────
+
+async function fetchContext() {
+  const [{ data: progs }, { data: avail }, { data: kb }] = await Promise.all([
+    supabase.from("programmes").select("id, title, price, duration, level, type, description").eq("status", "open"),
+    supabase.from("availability").select("day_of_week, start_time, end_time").eq("is_active", true),
+    supabase.from("knowledge_base").select("title, content, category").eq("is_active", true).limit(20),
   ]);
-  return {
-    config: cfgR.data,
-    programmes: prgR.data || [],
-    availability: avlR.data || [],
-    kb: kbR.data || [],
-  };
+
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  const programCtx = (progs || []).map(p => `- ${p.title} (${p.level}): ${p.price}, ${p.duration}. Type: ${p.type}. ${p.description || ""}. ID: ${p.id}`).join("\n");
+  const availCtx = (avail || []).map(a => `- ${days[a.day_of_week]}: ${a.start_time} - ${a.end_time}`).join("\n");
+  const kbCtx = (kb || []).map(k => `[${k.category}] ${k.title}: ${k.content}`).join("\n\n");
+
+  return { programCtx, availCtx, kbCtx, programs: progs || [], availability: avail || [] };
 }
 
-function formatProgrammes(p: any[]) {
-  if (!p.length) return "No programmes currently available.";
-  return p
-    .map(
-      (x) =>
-        `• ${x.title}${x.subtitle ? ` (${x.subtitle})` : ""} — ${x.description || "N/A"}\n  Level: ${
-          x.level || "Any"
-        } | Duration: ${x.duration || "Flexible"} | Price: ${x.price || "Contact us"} | Spots: ${
-          x.spots_left ?? "?"
-        }/${x.spots ?? "?"}`
-    )
-    .join("\n");
-}
+// ─────────────────────────────────────────────
+// AI Q&A HANDLER (with proper context)
+// ─────────────────────────────────────────────
 
-function formatAvailability(a: any[]) {
-  if (!a.length) return "No availability data configured.";
-  return a.map((x) => `• ${DAYS[x.day_of_week]}: ${x.start_time} – ${x.end_time}`).join("\n");
-}
+async function handleAIQuestion(
+  from: string,
+  conversation: any,
+  config: any,
+  category: "general" | "programs" | "availability",
+  ctx: Awaited<ReturnType<typeof fetchContext>>
+) {
+  const { data: history } = await supabase.from("messages").select("role, content")
+    .eq("conversation_id", conversation.id).order("created_at", { ascending: true }).limit(20);
 
-function formatKB(kb: any[]) {
-  if (!kb.length) return "No knowledge base entries.";
-  return kb.map((x) => `[${x.category || "general"}] ${x.title}:\n${x.content}`).join("\n\n");
-}
+  const historyMsgs = (history || []).map((m: any) => ({ role: m.role, content: m.content }));
+  const meta = conversation.metadata || {};
+  const nameCtx = meta.captured_name ? `The user's name is ${meta.captured_name}.` : "";
+  const now = new Date();
 
-// ═══════════════════════════════════════════════════════
-// AI Implementation (with fallback)
-// ═══════════════════════════════════════════════════════
-
-async function callAI(systemPrompt: string, msgs: { role: string; content: string }[]): Promise<string> {
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) throw new Error("LOVABLE_API_KEY not configured");
-
-  const fullMessages = [{ role: "system", content: systemPrompt }, ...msgs];
-
-  // Try Gemini 2.0 Flash via Lovable Gateway
-  try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-exp",
-        messages: fullMessages,
-      }),
-    });
-
-    if (resp.ok) {
-      const data = await resp.json();
-      return data.choices?.[0]?.message?.content || "Sorry, I couldn't process that.";
-    }
-    console.error("Primary AI error:", resp.status);
-  } catch (e) {
-    console.error("Primary AI catch error:", e);
+  let focusCtx = "";
+  if (category === "programs") {
+    focusCtx = `FOCUS: Answer questions about training programs ONLY using this data:\n${ctx.programCtx}\n\nDo NOT make up programs or prices. If a program isn't listed, say it's not currently available.`;
+  } else if (category === "availability") {
+    focusCtx = `FOCUS: Answer questions about scheduling and availability ONLY using this data:\n${ctx.availCtx}\nCurrent: ${now.toISOString()} (${now.toLocaleDateString('en-US', { weekday: 'long' })})\n\nDo NOT make up times. Only reference what's listed above.`;
+  } else {
+    focusCtx = `FOCUS: General Q&A. Use ALL available knowledge:\n\nPROGRAMS:\n${ctx.programCtx}\n\nAVAILABILITY:\n${ctx.availCtx}\n\nKNOWLEDGE BASE:\n${ctx.kbCtx}`;
   }
 
-  // Fallback to Gemini 1.5 Flash
-  try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-1.5-flash",
-        messages: fullMessages,
-      }),
-    });
+  const faqs = (config.faqs || []).map((f: any) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n");
 
-    if (resp.ok) {
-      const data = await resp.json();
-      return data.choices?.[0]?.message?.content || "Sorry, I couldn't process that.";
-    }
-  } catch (e) {
-    console.error("Fallback AI catch error:", e);
-  }
+  const systemPrompt = `${config.system_prompt}
 
-  return "I'm sorry, I'm having trouble connecting to my brain right now. Please try again soon! 🙏";
-}
+You are ${config.agent_name}.
+Tone: ${config.tone_voice || "Friendly"}
+Style: ${config.response_style || "Concise"}
 
-// ═══════════════════════════════════════════════════════
-// Database Helpers
-// ═══════════════════════════════════════════════════════
+${nameCtx}
 
-async function saveMsg(convId: string, role: string, content: string) {
-  await supabase.from("messages").insert({ conversation_id: convId, role, content });
-}
-
-async function getHistory(convId: string) {
-  const { data } = await supabase
-    .from("messages")
-    .select("role, content")
-    .eq("conversation_id", convId)
-    .order("created_at", { ascending: true })
-    .limit(20);
-  return (data || []).map((m) => ({ role: m.role, content: m.content }));
-}
-
-async function setMeta(convId: string, meta: any) {
-  await supabase
-    .from("conversations")
-    .update({ metadata: meta, updated_at: new Date().toISOString() })
-    .eq("id", convId);
-}
-
-function ok() {
-  return new Response("OK", { status: 200, headers: corsHeaders });
-}
-
-// ═══════════════════════════════════════════════════════
-// Lead Extraction & Upsert
-// ═══════════════════════════════════════════════════════
-
-const LEAD_QUALIFICATION_PROMPT = `You are a lead qualification assistant. Analyze the conversation and extract structured lead data.
-
-QUALIFICATION STAGES:
-- "new": Just started chatting, no meaningful info shared yet (Score 0-15)
-- "contacted": Responded to initial outreach, minimal engagement (Score 16-30)
-- "nurturing": Showing interest, asking questions, engaging in conversation (Score 31-50)
-- "qualified": Shared key details (name, experience, interest area), clear intent (Score 51-75)
-- "proposal": Asked about pricing, schedule, or specific training packages (Score 76-85)
-- "negotiation": Discussing specifics, comparing options, close to decision (Score 86-92)
-- "converted": Booked a session, committed to training, ready to start (Score 93-100)
-- "lost": Explicitly declined, went silent after multiple follow-ups, or chose competitor
-
-EXTRACT these fields (use null if not found):
-- name: Full name
-- email: Email address
-- training_interest: One of "forex", "gold_xau", "binary_options", "1on1_mentorship", "group_training"
-- experience_level: One of "beginner", "intermediate", "advanced"
-- lead_score: 0-100 based on stage criteria above
-- qualification_status: One of the stages above
-- qualification_reason: A 2-3 sentence explanation of WHY you assigned this stage and score
-- key_interests: Array of specific topics they asked about
-- objections: Any concerns or hesitations expressed
-- next_action: Suggested follow-up action
-
-Return ONLY valid JSON, no other text.`;
-
-async function extractAndUpsertLead(convId: string, phone: string) {
-  const msgs = await getHistory(convId);
-  // Extract lead info every few messages to maintain up-to-date data
-  if (msgs.length % 3 !== 0 && msgs.length > 2) return;
-
-  const key = Deno.env.get("LOVABLE_API_KEY");
-  if (!key) return;
-
-  try {
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-1.5-flash-8b",
-        messages: [{ role: "system", content: LEAD_QUALIFICATION_PROMPT }, ...msgs.slice(-10)],
-      }),
-    });
-    if (!resp.ok) return;
-    const data = await resp.json();
-    const content = data.choices?.[0]?.message?.content || "";
-    const match = content.match(/\{[\s\S]*\}/);
-    if (!match) return;
-    const info = JSON.parse(match[0]);
-
-    const lead: Record<string, any> = {
-      conversation_id: convId,
-      whatsapp_phone: phone,
-      extracted_data: info,
-    };
-    if (info.name) {
-      lead.name = info.name;
-      await supabase.from("conversations").update({ whatsapp_name: info.name }).eq("id", convId);
-    }
-    if (info.email) lead.email = info.email;
-    if (info.training_interest) lead.training_interest = info.training_interest;
-    if (info.experience_level) lead.experience_level = info.experience_level;
-    if (typeof info.lead_score === "number") lead.lead_score = info.lead_score;
-    if (
-      info.qualification_status &&
-      ["new", "contacted", "nurturing", "qualified", "proposal", "negotiation", "converted", "lost"].includes(
-        info.qualification_status
-      )
-    ) {
-      lead.status = info.qualification_status;
-    }
-    const notes: string[] = [];
-    if (info.qualification_reason) notes.push(`AI: ${info.qualification_reason}`);
-    if (info.next_action) notes.push(`Next: ${info.next_action}`);
-    if (info.objections) notes.push(`Objections: ${info.objections}`);
-    if (info.key_interests?.length) notes.push(`Interests: ${info.key_interests.join(", ")}`);
-    if (notes.length) lead.notes = notes.join(" | ");
-
-    await supabase.from("leads").upsert(lead, { onConflict: "whatsapp_phone" });
-  } catch (e) {
-    console.error("Lead extraction error:", e);
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// Flow Handlers
-// ═══════════════════════════════════════════════════════
-
-async function showMainMenu(to: string, convId: string) {
-  await sendButtons(to, "Welcome to Deriv Champions! 🏆\n\nHow can I help you today?", [
-    { id: "btn_learn", title: "I Want to Learn" },
-    { id: "btn_ask", title: "Ask a Question" },
-    { id: "btn_task", title: "Complete a Task" },
-  ]);
-  await saveMsg(convId, "assistant", "[Main Menu] I Want to Learn | Ask a Question | Complete a Task");
-  await setMeta(convId, { flow: null });
-}
-
-async function handleAIFlow(to: string, convId: string, ctx: any, flowType: string) {
-  const history = await getHistory(convId);
-  const agentName = ctx.config?.agent_name || "Trading Assistant";
-  const basePrompt = ctx.config?.system_prompt || "You are a helpful trading assistant.";
-  const toneVoice = ctx.config?.tone_voice || "Warm, encouraging, and professional.";
-  const responseStyle = ctx.config?.response_style || "Concise, conversational, and helpful.";
-
-  let contextData = "";
-
-  if (flowType === "onboarding") {
-    const quiz = ctx.config?.onboarding_quiz ? JSON.stringify(ctx.config.onboarding_quiz, null, 2) : "{}";
-    const faqs = ctx.config?.faqs ? JSON.stringify(ctx.config.faqs, null, 2) : "[]";
-    contextData = `
-MODE: ONBOARDING
-You are guiding the user through the onboarding quiz. Follow the quiz structure below exactly.
-Ask one question at a time. Be warm and encouraging.
-
-ONBOARDING QUIZ STRUCTURE:
-${quiz}
+${focusCtx}
 
 FAQs:
 ${faqs}
 
-AVAILABLE PROGRAMMES:
-${formatProgrammes(ctx.programmes)}
+BOOKING TOOLS (append at end of message if needed):
+[ACTION: CREATE_BOOKING {"first_name":"...","last_name":"...","email":"...","phone":"${from}","programme_id":"...","booking_date":"YYYY-MM-DD","start_time":"HH:MM:SS","is_online":true}]
+[ACTION: SEND_CONTACT {"name":"...","email":"...","subject":"...","message":"..."}]
 
-AVAILABILITY:
-${formatAvailability(ctx.availability)}
+CRITICAL RULES:
+- You have ALREADY introduced yourself. Do NOT say "Hi there, I'm Alexa" or re-introduce yourself.
+- Answer the user's question directly and concisely.
+- If you don't have the answer in your data, say so honestly.
+- Keep responses under 300 words.
+- Ask at most ONE follow-up question.`;
 
-KNOWLEDGE BASE:
-${formatKB(ctx.kb)}
+  const aiRaw = await callAI(systemPrompt, historyMsgs);
+  const aiClean = await processActions(aiRaw);
+  await sendText(from, aiClean, conversation.id);
 
-After completing the quiz, summarize what you learned and suggest the best programme.
-Remind the user they can type "menu" to see all options.`;
-  } else if (flowType === "qa_general") {
-    contextData = `
-MODE: GENERAL Q&A
-Answer the user's question using ALL data below. Be accurate and reference specific details.
-
-AVAILABLE PROGRAMMES:
-${formatProgrammes(ctx.programmes)}
-
-AVAILABILITY:
-${formatAvailability(ctx.availability)}
-
-KNOWLEDGE BASE:
-${formatKB(ctx.kb)}
-
-FAQs:
-${ctx.config?.faqs ? JSON.stringify(ctx.config.faqs, null, 2) : "[]"}
-
-Keep answers concise and accurate. Only share information that exists in the data above.
-After answering, remind them they can type "menu" for more options.`;
-  } else if (flowType === "qa_programs") {
-    contextData = `
-MODE: PROGRAMMES Q&A
-Answer questions about training programmes using the data below. Be specific with prices, durations, levels, and spots.
-
-AVAILABLE PROGRAMMES:
-${formatProgrammes(ctx.programmes)}
-
-Only share programme information from the data above. Do not make up details.
-After answering, remind them they can type "menu" for more options or book a session.`;
-  } else if (flowType === "qa_availability") {
-    contextData = `
-MODE: AVAILABILITY Q&A
-Answer questions about scheduling and availability using the data below.
-
-AVAILABILITY:
-${formatAvailability(ctx.availability)}
-
-Only share availability from the data above. Do not guess or make up times.
-After answering, remind them they can type "menu" for more options or book a session.`;
+  // Background lead extraction every 3 user messages
+  const userMsgCount = historyMsgs.filter((m: any) => m.role === "user").length;
+  if (userMsgCount > 0 && userMsgCount % 3 === 0) {
+    extractLead(from, conversation, config, historyMsgs);
   }
-
-  const systemPrompt = `${basePrompt}
-
-Your name is ${agentName}.
-Tone: ${toneVoice}
-Style: ${responseStyle}
-
-IMPORTANT: Your FIRST interaction with a new user MUST ask for their name in a warm, friendly way. Once they share it, use it throughout.
-
-${contextData}`;
-
-  const aiResponse = await callAI(systemPrompt, history);
-  await saveMsg(convId, "assistant", aiResponse);
-  await sendText(to, aiResponse);
 }
 
-// ─── Booking Flow ───────────────────────────────────
+// ─────────────────────────────────────────────
+// LEAD EXTRACTION (background, non-blocking)
+// ─────────────────────────────────────────────
 
-async function handleBookingStep(to: string, convId: string, meta: any, userInput: string, ctx: any) {
-  const step = meta.booking_step;
-  const data = meta.booking_data || {};
-
-  switch (step) {
-    case "first_name":
-      data.first_name = userInput;
-      await setMeta(convId, { flow: "booking", booking_step: "last_name", booking_data: data });
-      await sendText(to, `Thanks ${data.first_name}! 😊\n\nWhat's your *last name*?`);
-      await saveMsg(convId, "assistant", `Got first name: ${data.first_name}. Asked for last name.`);
-      break;
-
-    case "last_name":
-      data.last_name = userInput;
-      await setMeta(convId, { flow: "booking", booking_step: "email", booking_data: data });
-      await sendText(to, "What's your *email address*? 📧\n(We'll send your booking confirmation here)");
-      await saveMsg(convId, "assistant", "Got last name. Asked for email.");
-      break;
-
-    case "email":
-      data.email = userInput;
-      if (ctx.programmes.length > 0) {
-        const sections = [
-          {
-            title: "Our Programmes",
-            rows: ctx.programmes.slice(0, 10).map((p: any) => ({
-              id: `prog_${p.id}`,
-              title: (p.title || "Programme").slice(0, 24),
-              description: `${p.price || "Contact us"} - ${p.duration || "Flexible"}`.slice(0, 72),
-            })),
-          },
-        ];
-        await setMeta(convId, { flow: "booking", booking_step: "programme", booking_data: data });
-        await sendList(to, "Which programme would you like to book?", "View Programmes", sections);
-        await saveMsg(convId, "assistant", "Got email. Showed programme list.");
-      } else {
-        await setMeta(convId, { flow: "booking", booking_step: "format", booking_data: data });
-        await sendButtons(to, "Would you prefer online or in-person training?", [
-          { id: "format_online", title: "Online" },
-          { id: "format_inperson", title: "In-Person" },
-        ]);
-        await saveMsg(convId, "assistant", "No programmes. Asked for format.");
-      }
-      break;
-
-    case "programme": {
-      const progId = userInput.startsWith("prog_") ? userInput.replace("prog_", "") : null;
-      let prog = progId ? ctx.programmes.find((p: any) => p.id === progId) : null;
-      if (!prog) {
-        prog = ctx.programmes.find((p: any) => p.title.toLowerCase().includes(userInput.toLowerCase()));
-      }
-      data.programme_id = prog?.id || null;
-      data.programme_name = prog?.title || userInput;
-      await setMeta(convId, { flow: "booking", booking_step: "format", booking_data: data });
-      await sendButtons(to, `Great choice — *${data.programme_name}*! 🎯\n\nOnline or in-person?`, [
-        { id: "format_online", title: "Online" },
-        { id: "format_inperson", title: "In-Person" },
-      ]);
-      await saveMsg(convId, "assistant", `Selected: ${data.programme_name}. Asked for format.`);
-      break;
+async function extractLead(from: string, conversation: any, config: any, history: any[]) {
+  try {
+    const meta = conversation.metadata || {};
+    const prompt = `${config.lead_qualification_prompt || "Analyze and extract lead data."}\nReturn ONLY valid JSON with keys: name, email, training_interest, experience_level, qualification_status (new/contacted/qualified/converted/lost), lead_score (0-100), qualification_reason.`;
+    const raw = await callAI(prompt, history);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const lead = JSON.parse(jsonMatch[0]);
+      await supabase.from("leads").upsert({
+        whatsapp_phone: from,
+        conversation_id: conversation.id,
+        name: meta.captured_name || conversation.whatsapp_name || lead.name,
+        email: lead.email,
+        training_interest: lead.training_interest,
+        experience_level: meta.q1_experience || lead.experience_level,
+        status: lead.qualification_status || "new",
+        lead_score: lead.lead_score || 0,
+        notes: lead.qualification_reason,
+        extracted_data: lead,
+      }, { onConflict: "whatsapp_phone" });
     }
-
-    case "format":
-      data.is_online = userInput.toLowerCase().includes("online") || userInput === "format_online";
-      await setMeta(convId, { flow: "booking", booking_step: "message", booking_data: data });
-      await sendText(to, "Any additional message or goals? 📝\n\n(Type *skip* to skip)");
-      await saveMsg(convId, "assistant", `Format: ${data.is_online ? "Online" : "In-Person"}. Asked for message.`);
-      break;
-
-    case "message":
-      data.message = userInput.toLowerCase() === "skip" ? null : userInput;
-      await setMeta(convId, { flow: "booking", booking_step: "confirm", booking_data: data });
-
-      const summary =
-        `📋 *Booking Summary*\n\n` +
-        `👤 *Name:* ${data.first_name} ${data.last_name}\n` +
-        `📧 *Email:* ${data.email}\n` +
-        `📚 *Programme:* ${data.programme_name || "General"}\n` +
-        `💻 *Format:* ${data.is_online ? "Online" : "In-Person"}` +
-        (data.message ? `\n💬 *Message:* ${data.message}` : "") +
-        `\n\nIs everything correct?`;
-
-      await sendButtons(to, summary, [
-        { id: "booking_confirm", title: "Confirm Booking" },
-        { id: "booking_cancel", title: "Cancel" },
-      ]);
-      await saveMsg(convId, "assistant", "Showed booking summary.");
-      break;
-
-    case "confirm":
-      if (userInput === "booking_cancel" || userInput.toLowerCase().includes("cancel")) {
-        await setMeta(convId, { flow: null });
-        await sendText(to, "Booking cancelled. No worries! 😊");
-        await showMainMenu(to, convId);
-      } else {
-        const { data: booking, error } = await supabase
-          .from("bookings")
-          .insert({
-            first_name: data.first_name,
-            last_name: data.last_name,
-            phone: to,
-            email: data.email,
-            programme_id: data.programme_id || null,
-            is_online: data.is_online,
-            message: data.message,
-            status: "pending",
-          })
-          .select("id")
-          .single();
-
-        if (error) {
-          console.error("Booking insert error:", error);
-          await sendText(to, "Sorry, there was an error. Please try again later. 😔");
-        } else {
-          const bookingId = booking?.id?.slice(0, 8).toUpperCase() || "N/A";
-          await sendBookingEmail(data.email, data, bookingId);
-          await sendText(
-            to,
-            `🎉 *Booking Confirmed!*\n\n` +
-              `📋 *Booking ID:* #${bookingId}\n` +
-              `✉️ Confirmation sent to ${data.email}\n\n` +
-              `Is there anything else I can help you with?`
-          );
-          await saveMsg(convId, "assistant", `Booking confirmed! ID: ${bookingId}`);
-        }
-        await setMeta(convId, { flow: null });
-      }
-      break;
-
-    default:
-      await showMainMenu(to, convId);
-  }
+  } catch (e) { console.error("Lead extraction error:", e); }
 }
 
-// ─── Contact Flow ───────────────────────────────────
+// ─────────────────────────────────────────────
+// BOOKING FLOW (step-by-step)
+// ─────────────────────────────────────────────
 
-async function handleContactStep(to: string, convId: string, meta: any, userInput: string) {
-  const step = meta.contact_step;
-  const data = meta.contact_data || {};
+async function handleBookingStep(
+  from: string, convId: string, meta: any, text: string,
+  ctx: Awaited<ReturnType<typeof fetchContext>>
+): Promise<any> {
+  const step = meta.booking_step || "name";
 
-  switch (step) {
-    case "name":
-      data.name = userInput;
-      await setMeta(convId, { flow: "contact", contact_step: "email", contact_data: data });
-      await sendText(to, "What's your *email address*? 📧\n(Type *skip* to skip)");
-      await saveMsg(convId, "assistant", "Got name. Asked for email.");
-      break;
-
-    case "email":
-      data.email = userInput.toLowerCase() === "skip" ? null : userInput;
-      await setMeta(convId, { flow: "contact", contact_step: "subject", contact_data: data });
-      await sendText(to, "What's the *subject* of your message?");
-      await saveMsg(convId, "assistant", "Got email. Asked for subject.");
-      break;
-
-    case "subject":
-      data.subject = userInput;
-      await setMeta(convId, { flow: "contact", contact_step: "message", contact_data: data });
-      await sendText(to, "Go ahead and type your *message*: 💬");
-      await saveMsg(convId, "assistant", "Got subject. Asked for message.");
-      break;
-
-    case "message":
-      const { error } = await supabase.from("contact_messages").insert({
-        name: data.name,
-        email: data.email,
-        subject: data.subject,
-        message: userInput,
-      });
+  if (step === "name") {
+    meta.booking_name = text;
+    meta.booking_step = "email";
+    await sendText(from, `Thanks ${text}! 📧 What's your email address?`, convId);
+  } else if (step === "email") {
+    meta.booking_email = text;
+    meta.booking_step = "program";
+    // Show available programs as buttons (max 3)
+    const progButtons = ctx.programs.slice(0, 3).map(p => ({
+      id: `prog_${p.id.substring(0, 20)}`,
+      title: (p.title || "Program").substring(0, 20),
+    }));
+    if (progButtons.length > 0) {
+      await sendButtons(from, "Which program would you like to book? 📚", progButtons, convId);
+    } else {
+      await sendText(from, "No programs are currently available. Please try again later.", convId);
+      meta.flow = undefined;
+      meta.booking_step = undefined;
+    }
+  } else if (step === "program") {
+    // Extract program ID from button press
+    const progId = text.startsWith("prog_") ? text.replace("prog_", "") : text;
+    // Find matching program
+    const matched = ctx.programs.find(p => p.id.startsWith(progId) || p.title.toLowerCase().includes(text.toLowerCase()));
+    if (matched) {
+      meta.booking_programme_id = matched.id;
+      meta.booking_programme_name = matched.title;
+      meta.booking_step = "format";
+      await sendButtons(from, `Great choice: *${matched.title}*! 🎯\n\nWould you prefer online or in-person?`, [
+        { id: "fmt_online", title: "Online 💻" },
+        { id: "fmt_inperson", title: "In-Person 🏢" },
+      ], convId);
+    } else {
+      await sendText(from, "I couldn't find that program. Please select from the options above or type the program name.", convId);
+    }
+  } else if (step === "format") {
+    meta.booking_is_online = text.includes("online") || text.includes("fmt_online");
+    meta.booking_step = "confirm";
+    
+    const summary = `📋 *Booking Summary:*\n\n👤 Name: ${meta.booking_name}\n📧 Email: ${meta.booking_email}\n📚 Program: ${meta.booking_programme_name}\n💻 Format: ${meta.booking_is_online ? "Online" : "In-Person"}\n\nShall I confirm this booking?`;
+    await sendButtons(from, summary, [
+      { id: "book_confirm", title: "Confirm ✅" },
+      { id: "book_cancel", title: "Cancel ❌" },
+    ], convId);
+  } else if (step === "confirm") {
+    if (text.includes("confirm") || text.includes("book_confirm")) {
+      // Split name into first/last
+      const nameParts = (meta.booking_name || "User").split(" ");
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(" ") || "";
+      
+      const { data: booking, error } = await supabase.from("bookings").insert({
+        first_name: firstName,
+        last_name: lastName,
+        email: meta.booking_email,
+        phone: from,
+        programme_id: meta.booking_programme_id,
+        booking_date: new Date().toISOString().split("T")[0],
+        is_online: meta.booking_is_online,
+        message: `Booked via WhatsApp for ${meta.booking_programme_name}`,
+        status: "pending",
+      }).select("id").single();
 
       if (error) {
-        console.error("Contact insert error:", error);
-        await sendText(to, "Sorry, there was an error. Please try again. 😔");
+        console.error("Booking insert error:", error);
+        await sendText(from, "Sorry, there was an error creating your booking. Please try again. 🙏", convId);
       } else {
-        await sendText(
-          to,
-          "✅ *Message sent!*\n\nOur team will get back to you soon.\n\nAnything else I can help with?"
-        );
-        await saveMsg(convId, "assistant", "Contact message saved.");
+        const bookingId = booking?.id?.substring(0, 8) || "N/A";
+        await sendText(from, `🎉 *Booking Confirmed!*\n\n📋 Booking ID: *${bookingId}*\n📚 Program: ${meta.booking_programme_name}\n💻 Format: ${meta.booking_is_online ? "Online" : "In-Person"}\n\nA confirmation has been sent to ${meta.booking_email}. One of our coaches will reach out to you shortly!\n\nIs there anything else I can help you with? 😊`, convId);
       }
-      await setMeta(convId, { flow: null });
-      break;
-
-    default:
-      await showMainMenu(to, convId);
-  }
-}
-
-// ─── Booking Email ──────────────────────────────────
-
-async function sendBookingEmail(email: string, data: any, bookingId: string) {
-  try {
-    const apiKey = Deno.env.get("RESEND_API_KEY");
-    const sender = Deno.env.get("RESEND_SENDER_EMAIL");
-    if (!apiKey || !sender) {
-      console.log("Resend not configured, skipping email");
-      return;
+      // Reset booking flow
+      meta.flow = undefined;
+      meta.booking_step = undefined;
+    } else {
+      await sendText(from, "Booking cancelled. No worries! 😊 Is there anything else I can help with?", convId);
+      meta.flow = undefined;
+      meta.booking_step = undefined;
     }
-
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: sender,
-        to: email,
-        subject: `Booking Confirmation - #${bookingId}`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
-          <h2 style="color:#f97316">🎉 Booking Confirmed!</h2>
-          <p>Hi ${data.first_name},</p>
-          <p>Your training session has been booked successfully.</p>
-          <table style="width:100%;border-collapse:collapse;margin:20px 0">
-            <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Booking ID</strong></td><td style="padding:8px;border-bottom:1px solid #eee">#${bookingId}</td></tr>
-            <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Programme</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${
-              data.programme_name || "General"
-            }</td></tr>
-            <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Format</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${
-              data.is_online ? "Online" : "In-Person"
-            }</td></tr>
-          </table>
-          <p>We'll be in touch with more details soon.</p>
-          <p>Best regards,<br><strong>Deriv Champions</strong></p>
-        </div>`,
-      }),
-    });
-  } catch (e) {
-    console.error("Email error:", e);
   }
+  return meta;
 }
 
-// ═══════════════════════════════════════════════════════
-// Main Handler
-// ═══════════════════════════════════════════════════════
+// ─────────────────────────────────────────────
+// CONTACT MESSAGE FLOW
+// ─────────────────────────────────────────────
+
+async function handleContactStep(from: string, convId: string, meta: any, text: string): Promise<any> {
+  const step = meta.contact_step || "name";
+
+  if (step === "name") {
+    meta.contact_name = text;
+    meta.contact_step = "message";
+    await sendText(from, `Thanks ${text}! 📝 What message would you like to send to our team?`, convId);
+  } else if (step === "message") {
+    // Save the contact message
+    await supabase.from("contact_messages").insert({
+      name: meta.contact_name,
+      email: null,
+      subject: "WhatsApp Message",
+      message: text,
+      status: "unread",
+    });
+    await sendText(from, `✅ Your message has been sent to our team! They'll get back to you soon.\n\nIs there anything else I can help with? 😊`, convId);
+    meta.flow = undefined;
+    meta.contact_step = undefined;
+  }
+  return meta;
+}
+
+// ─────────────────────────────────────────────
+// TRIGGER DETECTION
+// ─────────────────────────────────────────────
+
+function isLearnTrigger(text: string, keywords: string[]): boolean {
+  const lower = text.toLowerCase();
+  return keywords.some(k => lower.includes(k.toLowerCase()));
+}
+
+// ─────────────────────────────────────────────
+// MAIN HANDLER
+// ─────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const url = new URL(req.url);
 
-  // Webhook verification (GET)
+  // Webhook verification
   if (req.method === "GET") {
-    const url = new URL(req.url);
-    const mode = url.searchParams.get("hub.mode");
-    const token = url.searchParams.get("hub.verify_token");
-    const challenge = url.searchParams.get("hub.challenge");
-    if (mode === "subscribe" && token === Deno.env.get("WHATSAPP_VERIFY_TOKEN")) {
-      console.log("Webhook verified");
-      return new Response(challenge, { status: 200 });
+    const verifyToken = Deno.env.get("WHATSAPP_VERIFY_TOKEN");
+    if (url.searchParams.get("hub.verify_token") === verifyToken) {
+      return new Response(url.searchParams.get("hub.challenge"), { status: 200 });
     }
     return new Response("Forbidden", { status: 403 });
   }
 
-  if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
-  }
+  if (req.method !== "POST") return new Response("Not Found", { status: 404 });
 
   try {
     const body = await req.json();
-    const entry = body?.entry?.[0]?.changes?.[0]?.value;
-    const message = entry?.messages?.[0];
+    console.log("[Webhook] Payload received");
 
-    if (!message) return ok();
+    const message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+    if (!message) return new Response("OK", { status: 200 });
 
     const from = message.from;
-    const contactName = entry?.contacts?.[0]?.profile?.name || null;
-
-    // Parse user input — text, button reply, or list reply
-    let userText = "";
+    let text = (message.text?.body || "").trim();
     let buttonId = "";
 
-    if (message.type === "text") {
-      userText = message.text.body;
-    } else if (message.type === "interactive") {
-      const inter = message.interactive;
-      if (inter.type === "button_reply") {
-        buttonId = inter.button_reply.id;
-        userText = inter.button_reply.title;
-      } else if (inter.type === "list_reply") {
-        buttonId = inter.list_reply.id;
-        userText = inter.list_reply.title;
-      }
+    if (message.type === "interactive") {
+      buttonId = message.interactive?.button_reply?.id || "";
+      text = message.interactive?.button_reply?.title || buttonId;
     }
 
-    if (!userText && !buttonId) return ok();
+    console.log(`[Webhook] From: ${from}, Text: "${text}", ButtonId: "${buttonId}"`);
+
+    // Fetch config and context in parallel
+    const [{ data: config }, ctx] = await Promise.all([
+      supabase.from("agent_config").select("*").limit(1).single(),
+      fetchContext(),
+    ]);
+
+    if (!config) throw new Error("Agent config not found");
 
     // Get or create conversation
-    let { data: conv } = await supabase
-      .from("conversations")
-      .select("id, metadata")
-      .eq("whatsapp_phone", from)
-      .single();
-
-    if (!conv) {
-      const { data: newConv } = await supabase
-        .from("conversations")
-        .insert({ whatsapp_phone: from, whatsapp_name: contactName })
-        .select("id, metadata")
-        .single();
-      conv = newConv;
-    } else if (contactName) {
-      await supabase
-        .from("conversations")
-        .update({ whatsapp_name: contactName, updated_at: new Date().toISOString() })
-        .eq("id", conv.id);
+    let { data: conversation } = await supabase.from("conversations").select("*").eq("whatsapp_phone", from).single();
+    if (!conversation) {
+      const { data: newConv } = await supabase.from("conversations").insert({
+        whatsapp_phone: from,
+        whatsapp_name: body?.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name,
+        metadata: { onboarding_state: "idle" },
+      }).select("*").single();
+      conversation = newConv;
     }
 
-    if (!conv) {
-      console.error("Failed to get/create conversation");
-      return new Response("Error", { status: 500, headers: corsHeaders });
+    const meta = conversation.metadata || {};
+    let state = meta.onboarding_state || "idle";
+    const inputId = buttonId || text; // Use buttonId if available, else text
+    
+    console.log(`[State] Conv: ${conversation.id}, State: ${state}, Flow: ${meta.flow || "none"}`);
+
+    // Log incoming user message
+    await supabase.from("messages").insert({
+      conversation_id: conversation.id,
+      role: "user",
+      content: text || buttonId,
+    });
+
+    const quiz = config.onboarding_quiz || {};
+
+    // ── ACTIVE FLOW HANDLING (booking, contact) ──
+    if (meta.flow === "booking") {
+      const updatedMeta = await handleBookingStep(from, conversation.id, meta, inputId, ctx);
+      Object.assign(meta, updatedMeta);
     }
-
-    // Save user message
-    await saveMsg(conv.id, "user", userText || buttonId);
-
-    // Fetch all context in parallel
-    const ctx = await fetchAllContext();
-    const meta = (conv.metadata as any) || {};
-    const flow = meta.flow || null;
-    const lowerText = (userText || "").toLowerCase().trim();
-
-    // ─── Global Triggers ─────────────────────────────
-
-    // "menu" / "back" always resets to main menu
-    if (lowerText === "menu" || lowerText === "back" || lowerText === "home") {
-      await showMainMenu(from, conv.id);
-      return ok();
+    else if (meta.flow === "contact") {
+      const updatedMeta = await handleContactStep(from, conversation.id, meta, text);
+      Object.assign(meta, updatedMeta);
     }
-
-    // "I want to learn" trigger — works from any state
-    const triggers = ctx.config?.ad_trigger_keywords || [];
-    const isLearnTrigger =
-      triggers.some((kw: string) => lowerText.includes(kw.toLowerCase())) || lowerText.includes("i want to learn");
-
-    if (isLearnTrigger) {
-      await setMeta(conv.id, { flow: "onboarding" });
-      await handleAIFlow(from, conv.id, ctx, "onboarding");
-      await extractAndUpsertLead(conv.id, from);
-      return ok();
+    // ── MAIN STATE MACHINE ──
+    else if (state === "idle") {
+      if (isLearnTrigger(text, config.ad_trigger_keywords || [])) {
+        // Trigger → start onboarding
+        if (quiz.welcome) {
+          await sendButtons(from, quiz.welcome.body, quiz.welcome.buttons, conversation.id);
+          state = "q1_pending";
+        }
+      } else {
+        // Non-trigger → show main menu with 3 options
+        await sendButtons(from,
+          `Hey! 👋 Welcome to *Deriv Champions*!\n\nI'm *${config.agent_name.split(" - ")[0]}*, your trading guide. How can I help you today?`,
+          [
+            { id: "choice_learn", title: "I Want to Learn 📚" },
+            { id: "choice_ask", title: "Ask a Question 💬" },
+            { id: "choice_task", title: "Complete a Task ✅" },
+          ],
+          conversation.id
+        );
+        state = "menu_pending";
+      }
     }
-
-    // ─── Button Handlers ─────────────────────────────
-
-    if (buttonId === "btn_learn") {
-      await setMeta(conv.id, { flow: "onboarding" });
-      await handleAIFlow(from, conv.id, ctx, "onboarding");
-      return ok();
+    else if (state === "menu_pending") {
+      if (inputId === "choice_learn" || isLearnTrigger(text, config.ad_trigger_keywords || [])) {
+        if (quiz.welcome) {
+          await sendButtons(from, quiz.welcome.body, quiz.welcome.buttons, conversation.id);
+          state = "q1_pending";
+        }
+      } else if (inputId === "choice_ask") {
+        await sendButtons(from,
+          "What would you like to know about? 🤔",
+          [
+            { id: "cat_general", title: "General Info ℹ️" },
+            { id: "cat_programs", title: "Programs 📚" },
+            { id: "cat_avail", title: "Availability 📅" },
+          ],
+          conversation.id
+        );
+        state = "ask_category";
+      } else if (inputId === "choice_task") {
+        await sendButtons(from,
+          "What would you like to do? ✅",
+          [
+            { id: "task_book", title: "Book Training 📅" },
+            { id: "task_message", title: "Send a Message 💬" },
+          ],
+          conversation.id
+        );
+        state = "task_pending";
+      } else {
+        // Unknown input → show menu again
+        await sendButtons(from,
+          "Please select an option below 👇",
+          [
+            { id: "choice_learn", title: "I Want to Learn 📚" },
+            { id: "choice_ask", title: "Ask a Question 💬" },
+            { id: "choice_task", title: "Complete a Task ✅" },
+          ],
+          conversation.id
+        );
+      }
     }
-
-    if (buttonId === "btn_ask") {
-      await sendButtons(from, "What would you like to know about? 🤔", [
-        { id: "cat_general", title: "General" },
-        { id: "cat_programs", title: "Programs" },
-        { id: "cat_availability", title: "Availability" },
-      ]);
-      await saveMsg(conv.id, "assistant", "[Categories] General | Programs | Availability");
-      return ok();
+    // ── ASK CATEGORY SELECTION ──
+    else if (state === "ask_category") {
+      if (inputId === "cat_general" || inputId === "cat_programs" || inputId === "cat_avail") {
+        const catMap: Record<string, "general" | "programs" | "availability"> = {
+          cat_general: "general", cat_programs: "programs", cat_avail: "availability"
+        };
+        meta.ask_category = catMap[inputId] || "general";
+        await sendText(from, "Go ahead, ask me anything! 💬", conversation.id);
+        state = "freeform_qa";
+      } else {
+        // Treat as a general question directly
+        meta.ask_category = "general";
+        state = "freeform_qa";
+        await handleAIQuestion(from, conversation, config, "general", ctx);
+      }
     }
-
-    if (buttonId === "btn_task") {
-      await sendButtons(from, "What would you like to do? ✅", [
-        { id: "task_book", title: "Book Training" },
-        { id: "task_message", title: "Send Message" },
-      ]);
-      await saveMsg(conv.id, "assistant", "[Tasks] Book Training | Send Message");
-      return ok();
+    // ── FREEFORM Q&A ──
+    else if (state === "freeform_qa") {
+      // Check if user wants to go back to menu
+      if (text.toLowerCase() === "menu" || inputId === "back_menu") {
+        await sendButtons(from,
+          "Back to the main menu! 👋 What would you like to do?",
+          [
+            { id: "choice_learn", title: "I Want to Learn 📚" },
+            { id: "choice_ask", title: "Ask a Question 💬" },
+            { id: "choice_task", title: "Complete a Task ✅" },
+          ],
+          conversation.id
+        );
+        state = "menu_pending";
+      } else {
+        const cat = meta.ask_category || "general";
+        await handleAIQuestion(from, conversation, config, cat, ctx);
+      }
     }
+    // ── TASK SELECTION ──
+    else if (state === "task_pending") {
+      if (inputId === "task_book") {
+        meta.flow = "booking";
+        meta.booking_step = "name";
+        await sendText(from, "Let's book a training session! 📅\n\nWhat's your full name?", conversation.id);
+        state = "task_active";
+      } else if (inputId === "task_message") {
+        meta.flow = "contact";
+        meta.contact_step = "name";
+        await sendText(from, "I'll help you send a message to our team! 📝\n\nWhat's your name?", conversation.id);
+        state = "task_active";
+      } else {
+        await sendButtons(from,
+          "Please select a task 👇",
+          [
+            { id: "task_book", title: "Book Training 📅" },
+            { id: "task_message", title: "Send a Message 💬" },
+          ],
+          conversation.id
+        );
+      }
+    }
+    // ── ACTIVE TASK (handled above in flow section) ──
+    else if (state === "task_active") {
+      // If flow was completed (meta.flow reset), go back to menu
+      if (!meta.flow) {
+        await sendButtons(from,
+          "What would you like to do next?",
+          [
+            { id: "choice_learn", title: "I Want to Learn 📚" },
+            { id: "choice_ask", title: "Ask a Question 💬" },
+            { id: "choice_task", title: "Complete a Task ✅" },
+          ],
+          conversation.id
+        );
+        state = "menu_pending";
+      }
+    }
+    // ── ONBOARDING QUIZ FLOW ──
+    else if (state === "q1_pending") {
+      if (inputId === "start_yes") {
+        const q = quiz.questions?.[0];
+        if (q) {
+          await sendButtons(from, q.text, q.options, conversation.id);
+          state = "q1_answered";
+        }
+      } else {
+        // Re-send welcome
+        if (quiz.welcome) {
+          await sendButtons(from, quiz.welcome.body, quiz.welcome.buttons, conversation.id);
+        }
+      }
+    }
+    else if (state === "q1_answered") {
+      meta.q1_experience = inputId;
+      const q = quiz.questions?.[1];
+      if (q) {
+        await sendButtons(from, q.text, q.options, conversation.id);
+        state = "q2_answered";
+      }
+    }
+    else if (state === "q2_answered") {
+      meta.q2_time = inputId;
+      const q = quiz.questions?.[2];
+      if (q) {
+        await sendButtons(from, q.text, q.options, conversation.id);
+        state = "q3_answered";
+      }
+    }
+    else if (state === "q3_answered") {
+      meta.q3_goal = inputId;
+      const rec = quiz.recommendation;
+      if (rec) {
+        const isIntermediate = rec.intermediate_triggers?.includes(meta.q1_experience);
+        const bodyText = rec.base_text.replace("{program}", isIntermediate ? "Intermediate" : "Beginner");
+        await sendButtons(from, bodyText, [rec.details_button], conversation.id);
+        state = "details_pending";
+      }
+    }
+    else if (state === "details_pending") {
+      if (inputId === "send_details") {
+        if (quiz.details) {
+          await sendText(from, `Details: ${quiz.details.link}`, conversation.id);
+          await sendText(from, quiz.details.message, conversation.id);
+        }
+        state = "name_pending";
+      }
+    }
+    else if (state === "name_pending") {
+      meta.captured_name = text;
+      // Update conversation with captured name
+      await supabase.from("conversations").update({ whatsapp_name: text }).eq("id", conversation.id);
 
-    // Category buttons
-    if (buttonId === "cat_general") {
-      await setMeta(conv.id, { flow: "qa_general" });
-      await sendText(
-        from,
-        "Ask me anything about Deriv Champions! 💡\n\nI have info about our programs, availability, and trading topics.\n\nType your question:"
+      if (quiz.handoff) {
+        await sendText(from, quiz.handoff.replace("{name}", text), conversation.id);
+      }
+      // After onboarding, show main menu
+      await sendButtons(from,
+        "What would you like to do next?",
+        [
+          { id: "choice_learn", title: "I Want to Learn 📚" },
+          { id: "choice_ask", title: "Ask a Question 💬" },
+          { id: "choice_task", title: "Complete a Task ✅" },
+        ],
+        conversation.id
       );
-      await saveMsg(conv.id, "assistant", "Ready for general questions.");
-      return ok();
+      state = "menu_pending";
+    }
+    // ── FALLBACK: any unknown state → AI response then menu ──
+    else {
+      await handleAIQuestion(from, conversation, config, "general", ctx);
+      state = "freeform_qa";
+      meta.ask_category = "general";
     }
 
-    if (buttonId === "cat_programs") {
-      await setMeta(conv.id, { flow: "qa_programs" });
-      const progList = ctx.programmes
-        .map((p: any) => `• *${p.title}* — ${p.price || "Contact us"} (${p.duration || "Flexible"})`)
-        .join("\n");
-      await sendText(
-        from,
-        `Here are our programmes:\n\n${progList || "No programmes currently available."}\n\nWhat would you like to know?`
-      );
-      await saveMsg(conv.id, "assistant", "Shared programmes. Waiting for question.");
-      return ok();
-    }
+    // Save state
+    meta.onboarding_state = state;
+    await supabase.from("conversations").update({ metadata: meta }).eq("id", conversation.id);
 
-    if (buttonId === "cat_availability") {
-      await setMeta(conv.id, { flow: "qa_availability" });
-      const availList = ctx.availability
-        .map((a: any) => `• *${DAYS[a.day_of_week]}*: ${a.start_time} – ${a.end_time}`)
-        .join("\n");
-      await sendText(
-        from,
-        `Here's our schedule:\n\n${availList || "No availability set."}\n\nAny questions about scheduling?`
-      );
-      await saveMsg(conv.id, "assistant", "Shared availability. Waiting for question.");
-      return ok();
-    }
-
-    // Task buttons
-    if (buttonId === "task_book") {
-      await setMeta(conv.id, { flow: "booking", booking_step: "first_name", booking_data: {} });
-      await sendText(from, "Let's book your training! 📅\n\nWhat's your *first name*?");
-      await saveMsg(conv.id, "assistant", "Booking flow started. Asked for first name.");
-      return ok();
-    }
-
-    if (buttonId === "task_message") {
-      await setMeta(conv.id, { flow: "contact", contact_step: "name", contact_data: {} });
-      await sendText(from, "I'll pass your message along! 💬\n\nWhat's your *name*?");
-      await saveMsg(conv.id, "assistant", "Contact flow started. Asked for name.");
-      return ok();
-    }
-
-    // Booking-specific buttons
-    if ((buttonId === "format_online" || buttonId === "format_inperson") && flow === "booking") {
-      await handleBookingStep(from, conv.id, meta, buttonId, ctx);
-      return ok();
-    }
-
-    if ((buttonId === "booking_confirm" || buttonId === "booking_cancel") && flow === "booking") {
-      await handleBookingStep(from, conv.id, meta, buttonId, ctx);
-      return ok();
-    }
-
-    if (buttonId.startsWith("prog_") && flow === "booking") {
-      await handleBookingStep(from, conv.id, meta, buttonId, ctx);
-      return ok();
-    }
-
-    // ─── Active Flow Handlers ────────────────────────
-
-    if (flow === "onboarding") {
-      await handleAIFlow(from, conv.id, ctx, "onboarding");
-      await extractAndUpsertLead(conv.id, from);
-      return ok();
-    }
-
-    if (flow === "qa_general" || flow === "qa_programs" || flow === "qa_availability") {
-      await handleAIFlow(from, conv.id, ctx, flow);
-      await extractAndUpsertLead(conv.id, from);
-      return ok();
-    }
-
-    if (flow === "booking") {
-      await handleBookingStep(from, conv.id, meta, userText, ctx);
-      return ok();
-    }
-
-    if (flow === "contact") {
-      await handleContactStep(from, conv.id, meta, userText);
-      return ok();
-    }
-
-    // ─── Default: Show Main Menu ─────────────────────
-    await showMainMenu(from, conv.id);
-    await extractAndUpsertLead(conv.id, from);
-    return ok();
-  } catch (error) {
-    console.error("Webhook error:", error);
-    return new Response("Error", { status: 500, headers: corsHeaders });
+    return new Response("OK", { status: 200 });
+  } catch (e) {
+    console.error("Webhook error:", e);
+    return new Response("Error", { status: 500 });
   }
 });
