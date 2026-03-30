@@ -208,6 +208,39 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_reports: {
+        Row: {
+          ai_analysis: string | null
+          created_at: string | null
+          id: string
+          pdf_path: string | null
+          pdf_url: string | null
+          report_date: string
+          stats: Json | null
+          title: string
+        }
+        Insert: {
+          ai_analysis?: string | null
+          created_at?: string | null
+          id?: string
+          pdf_path?: string | null
+          pdf_url?: string | null
+          report_date: string
+          stats?: Json | null
+          title: string
+        }
+        Update: {
+          ai_analysis?: string | null
+          created_at?: string | null
+          id?: string
+          pdf_path?: string | null
+          pdf_url?: string | null
+          report_date?: string
+          stats?: Json | null
+          title?: string
+        }
+        Relationships: []
+      }
       knowledge_base: {
         Row: {
           category: string | null
