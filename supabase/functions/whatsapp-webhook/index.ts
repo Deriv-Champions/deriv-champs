@@ -32,12 +32,83 @@ async function sendText(to: string, text: string, convId?: string) {
   if (!resp.ok) console.error("[WA] Text send error:", resp.status, await resp.text());
 }
 
-// WhatsApp button rules: max 3 buttons, title max 20 chars, id max 256 chars
-function sanitizeButtons(buttons: { id: string; title: string }[]): { id: string; title: string }[] {
-  return buttons.slice(0, 3).map(b => ({
-    id: (b.id || "btn").substring(0, 256),
-    title: (b.title || "Option").substring(0, 20),
-  }));
+// Robust JSON extraction for potentially markdown-wrapped content
+function extractJsonFromResponse(response: string): unknown {
+  let cleaned = (response || "")
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  const jsonStart = cleaned.search(/[\{\[]/);
+  if (jsonStart === -1) throw new Error("No JSON start found");
+
+  const open = cleaned[jsonStart];
+  const close = open === "[" ? "]" : "}";
+  const jsonEnd = cleaned.lastIndexOf(close);
+  if (jsonEnd === -1) throw new Error("No JSON end found");
+
+  cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    cleaned = cleaned
+      .replace(/,\s*}/g, "}")
+      .replace(/,\s*]/g, "]")
+      .replace(/[\x00-\x1F\x7F]/g, "");
+    return JSON.parse(cleaned);
+  }
+}
+
+function normalizeButtons(rawButtons: any): { id: string; title: string }[] {
+  let source = rawButtons;
+
+  if (typeof source === "string") {
+    try {
+      const parsed = extractJsonFromResponse(source);
+      source = Array.isArray(parsed) ? parsed : (parsed as any)?.buttons ?? [];
+    } catch {
+      source = [];
+    }
+  }
+
+  if (!Array.isArray(source)) return [];
+
+  const usedTitles = new Set<string>();
+  const usedIds = new Set<string>();
+  const normalized: { id: string; title: string }[] = [];
+
+  for (let i = 0; i < source.length && normalized.length < 3; i++) {
+    const raw = source[i] ?? {};
+    const rawId = String(raw.id ?? raw.value ?? raw.key ?? `btn_${i + 1}`);
+    const rawTitle = String(raw.title ?? raw.label ?? raw.text ?? raw.name ?? `Option ${i + 1}`);
+
+    let id = rawId.trim().substring(0, 256) || `btn_${i + 1}`;
+    let title = rawTitle.replace(/\s+/g, " ").trim().substring(0, 20) || `Option ${i + 1}`;
+
+    let titleKey = title.toLowerCase();
+    let titleCounter = 2;
+    while (usedTitles.has(titleKey)) {
+      const suffix = ` ${titleCounter}`;
+      const base = title.substring(0, Math.max(1, 20 - suffix.length)).trim();
+      title = `${base}${suffix}`;
+      titleKey = title.toLowerCase();
+      titleCounter++;
+    }
+
+    let idCounter = 2;
+    while (usedIds.has(id)) {
+      const suffix = `_${idCounter}`;
+      id = `${rawId.substring(0, Math.max(1, 256 - suffix.length))}${suffix}`;
+      idCounter++;
+    }
+
+    usedTitles.add(titleKey);
+    usedIds.add(id);
+    normalized.push({ id, title });
+  }
+
+  return normalized;
 }
 
 async function sendButtons(to: string, bodyText: string, buttons: { id: string; title: string }[], convId?: string) {
@@ -45,36 +116,43 @@ async function sendButtons(to: string, bodyText: string, buttons: { id: string; 
   const phoneId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
   if (!token || !phoneId) throw new Error("WhatsApp credentials missing");
 
-  const safeButtons = sanitizeButtons(buttons);
-  // Body text max 1024 chars for WhatsApp
-  const safeBody = bodyText.substring(0, 1024);
+  const safeButtons = normalizeButtons(buttons);
+  const safeBody = (bodyText || "Please choose an option below.").substring(0, 1024);
+
+  if (safeButtons.length === 0) {
+    console.error("[WA] No valid buttons after normalization", { bodyText, buttons });
+    await sendText(to, safeBody, convId);
+    return;
+  }
 
   if (convId) {
     const btnList = safeButtons.map(b => b.title).join(", ");
     await supabase.from("messages").insert({ conversation_id: convId, role: "assistant", content: `${safeBody}\n\n[Buttons: ${btnList}]` });
   }
 
+  const payload = {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: safeBody },
+      action: {
+        buttons: safeButtons.map(b => ({ type: "reply", reply: { id: b.id, title: b.title } })),
+      },
+    },
+  };
+
   const resp = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "button",
-        body: { text: safeBody },
-        action: {
-          buttons: safeButtons.map(b => ({ type: "reply", reply: { id: b.id, title: b.title } })),
-        },
-      },
-    }),
+    body: JSON.stringify(payload),
   });
+
   if (!resp.ok) {
     const errText = await resp.text();
-    console.error("[WA] Button send error:", resp.status, errText);
-    // Fallback: send as plain text if buttons fail
-    await sendText(to, `${safeBody}\n\nOptions: ${safeButtons.map(b => `• ${b.title}`).join("\n")}`, undefined);
+    console.error("[WA] Button send error:", resp.status, errText, { payload });
+    await sendText(to, `${safeBody}\n\nOptions:\n${safeButtons.map(b => `• ${b.title}`).join("\n")}`, convId);
   }
 }
 
